@@ -238,6 +238,9 @@ export const routes = defineRoutes({
   modalDragPage: { path: "/dev/nav/modal-drag/page", screen: ModalDragPageScreen, transition: "modal", restore: false },
   modalDragSecure: { path: "/dev/nav/modal-drag/secure", screen: ModalDragPageScreen, transition: "modal", secure: true, restore: false },
   modalDragSeeThrough: { path: "/dev/nav/modal-drag/see-through", screen: ModalDragSeeThroughScreen, transparent: true, transition: "modal", safeArea: "none", restore: false },
+  // The lab's dark page with a light status bar, and the native photo viewer as a modal route (its own swipe to close wins).
+  modalDragLight: { path: "/dev/nav/modal-drag/light", screen: ModalDragPageScreen, transition: "modal", statusBar: "light", safeArea: { top: false }, restore: false },
+  modalDragViewer: { path: "/dev/nav/modal-drag/viewer", native: "imageviewer.full", safeArea: "none", transition: "modal" },
 })
 
 // Typed navigation: nav.push("amount", { merchantId }) is checked against these routes.

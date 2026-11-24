@@ -210,13 +210,24 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
     private var modalDrag: ZnModalDrag?
     /// The drag on a screen that wants Back: JS heard BACK when it began; nothing moves.
     private var dismissToJS = false
-    /// The scroll views under the touch dismissPan got, innermost first.
+    /// The scroll views under the touch dismissPan got, in the modal screen itself, innermost first.
     private var touchScrolls: [UIScrollView] = []
+    /// Under a see-through modal: the scroll views of the screens below it that the touch went to (a backdrop lets it
+    /// through). They wait for the drag down to fail and never hand it over.
+    private var belowScrolls: [UIScrollView] = []
+    /// Other pans under the touch in the modal screen (a native screen's or NativeView's own: a map, a signature pad,
+    /// the image viewer's swipe to close): the drag down waits for them to fail.
+    private var touchPans: [UIGestureRecognizer] = []
     /// A scroll view handing its pull over (it reached its top while the finger pulled down), and the finger's
-    /// translation then: the drag counts from there.
-    private var handoff: (scroll: UIScrollView, from: CGFloat)?
+    /// translation then: the drag counts from there. [toJS]: the screen wants Back; JS heard BACK and nothing moves.
+    private var handoff: (scroll: UIScrollView, from: CGFloat, toJS: Bool)?
     /// Scroll views whose pans we follow for a hand-over.
     private let followed = NSHashTable<UIScrollView>.weakObjects()
+    /// The followed scroll views that were away from their pull end (scrolled down) in their pan under way: only these
+    /// hand the pull over when they reach it, so a drag that starts at the top (or a sideways one) never does.
+    private let awayInPan = NSHashTable<UIScrollView>.weakObjects()
+    /// dismissPan's translation when it began (UIKit's start slop, about 10 pt): the screen moves from there.
+    private var dragFrom: CGFloat = 0
 
     init(app: ZnApp) {
         self.app = app
@@ -372,8 +383,12 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
     }
 
     // A swipe that finished: native popped; JS is told (FORCED_BACK).
-    override var childForStatusBarStyle: UIViewController? { topViewController }
-    override var childForStatusBarHidden: UIViewController? { topViewController }
+    // During a swipe back or a drag down (an interactive pop), `topViewController` is already the screen below: the
+    // screen the finger holds keeps its light or dark status bar until it is let go and goes on (barHeld).
+    override var childForStatusBarStyle: UIViewController? { barHeld ?? topViewController }
+    override var childForStatusBarHidden: UIViewController? { barHeld ?? topViewController }
+    /// The screen an interactive pop is taking off, until the finger lets it go (or a cancel's didShow).
+    private var barHeld: UIViewController?
 
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
@@ -386,10 +401,22 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
     }
 
     func navigationController(_ nav: UINavigationController, willShow vc: UIViewController, animated: Bool) {
+        // A swipe back or a drag down may still be cancelled: the screen under the finger keeps the status bar until
+        // it is let go and goes on (a modal "light" one switched to dark icons as the drag began, 2026-11-24 review).
+        if let c = transitionCoordinator, c.isInteractive {
+            barHeld = c.viewController(forKey: .from)
+            c.notifyWhenInteractionChanges { [weak self] ctx in
+                guard let self, !ctx.isCancelled else { return }
+                self.barHeld = nil
+                self.setNeedsStatusBarAppearanceUpdate()
+            }
+            return
+        }
         setNeedsStatusBarAppearanceUpdate()  // the new top screen's route says light or dark
     }
 
     func navigationController(_ nav: UINavigationController, didShow vc: UIViewController, animated: Bool) {
+        barHeld = nil
         setNeedsStatusBarAppearanceUpdate()  // a cancelled drag or swipe: the screen that stays says light or dark again
         // The entries native shows, so a log can be checked against JS's stack ("nav: ... → stack").
         print("zn t=\(ZnDebug.ms()) uikit: didShow \(Self.entries(viewControllers))\(viewControllers == lastSet ? "" : ", set \(Self.entries(lastSet))")")
@@ -443,8 +470,13 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
 
     func gestureRecognizer(_ g: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         if g === backPan { edgeTouch = touch.location(in: view).x <= edge }
-        if g === dismissPan { touchScrolls = scrolls(under: touch) }
+        if g === dismissPan, dismissPan.numberOfTouches == 0 { readTouch(touch) }
         return true
+    }
+
+    /// dismissPan waits for a native pan under the finger in the modal screen (touchPans).
+    func gestureRecognizer(_ g: UIGestureRecognizer, shouldRequireFailureOf other: UIGestureRecognizer) -> Bool {
+        g === dismissPan && touchPans.contains { $0 === other }
     }
 
     /// At the left edge the back swipe goes first, as Android's system back gesture over a pager or a row: a scroll
@@ -558,11 +590,14 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
     func navigationController(_ nav: UINavigationController, animationControllerFor operation: UINavigationController.Operation,
                               from: UIViewController, to: UIViewController) -> UIViewControllerAnimatedTransitioning? {
         let opening = operation == .push
-        let interactive = (interaction != nil || modalDrag != nil) && !opening
+        // The drag down's own pop takes it, once: a pop that UIKit starts after it (JS's, queued meanwhile) doesn't.
+        let drag = modalDrag.flatMap { $0.claimed || opening ? nil : $0 }
+        let interactive = (interaction != nil || drag != nil) && !opening
         let transition = entry(of: opening ? to : from).flatMap { app.route(of: $0)?.transition } ?? .push
         let flight = interactive || transition != .none ? sharedFlight(from: from, to: to, opening: opening) : nil
         swipeFlight = interactive ? flight : nil
-        if let drag = modalDrag, !opening {
+        if let drag {
+            drag.claimed = true
             drag.flight = flight
             return drag
         }
@@ -590,33 +625,65 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
         return viewControllers.count > 1 ? (top, nil) : nil
     }
 
-    /// The scroll views from the touched view up to the top screen's view, innermost first. A modal screen's ones are
-    /// followed from now on, so one that reaches its top while the finger pulls down can hand the pull over.
-    private func scrolls(under touch: UITouch) -> [UIScrollView] {
-        guard let top = topViewController?.view, let entry = app.stack.last, app.route(of: entry)?.transition == .modal else { return [] }
-        var out: [UIScrollView] = []
+    /// What lies under a new touch, from the touched view up to the top box: the scroll views and other pans of the
+    /// modal screen itself (for a see-through one, inside its holder), and the scroll views of the screens below it
+    /// that a backdrop let the touch through to. The modal screen's scroll views are followed from now on, so one
+    /// that reaches its top while the finger pulls down can hand the pull over.
+    private func readTouch(_ touch: UITouch) {
+        touchScrolls = []
+        belowScrolls = []
+        touchPans = []
+        guard let box = topViewController as? ZnSeeThroughBox, let entry = app.stack.last,
+              app.route(of: entry)?.transition == .modal else { return }
+        var path: [UIView] = []
         var v = touch.view
-        while let at = v, at !== top {
-            if let sv = at as? UIScrollView { out.append(sv) }
+        while let at = v, at !== box.view {
+            path.append(at)
             v = at.superview
         }
-        guard v === top else { return [] }
-        for sv in out where !followed.contains(sv) {
+        guard v === box.view else { return }
+        let own: UIView? = box.layers.count > 1 ? box.layers.last?.holder : box.view
+        for at in path {
+            let mine = own.map { at.isDescendant(of: $0) } ?? false
+            if let sv = at as? UIScrollView {
+                if mine { touchScrolls.append(sv) } else { belowScrolls.append(sv) }
+            }
+            guard mine else { continue }
+            touchPans += (at.gestureRecognizers ?? []).filter(Self.nativePan)
+        }
+        for sv in touchScrolls where !followed.contains(sv) {
             followed.add(sv)
             sv.panGestureRecognizer.addTarget(self, action: #selector(scrollPanned(_:)))
         }
-        return out
     }
 
-    /// [sv] moves with a finger pulling down now: it scrolls up and down and isn't at that end yet, or it has a pull
-    /// to refresh (its pull at the top refreshes, as in UIKit's sheet).
+    /// A pan of a native screen or view the drag down leaves the touch to: not a scroll view's own (they scroll and
+    /// hand over), not ours (zn.*: the back swipe, a Sheet's), not SwiftUI's.
+    private static func nativePan(_ r: UIGestureRecognizer) -> Bool {
+        guard r is UIPanGestureRecognizer, r.isEnabled, !(r.view is UIScrollView), r.name?.hasPrefix("zn.") != true else { return false }
+        return !NSStringFromClass(type(of: r)).contains("SwiftUI")
+    }
+
+    /// [sv] scrolls up and down: its content is taller than it, or it always bounces that way.
+    private static func scrollsVertically(_ sv: UIScrollView) -> Bool {
+        let inset = sv.adjustedContentInset
+        return sv.contentSize.height + inset.top + inset.bottom > sv.bounds.height + 0.5 || sv.alwaysBounceVertical
+    }
+
+    /// [sv] scrolls up and down and isn't at the end a finger pulling down scrolls it to (or past it, pulled into its
+    /// bounce): it has more to scroll that way.
+    private static func awayFromPullEnd(_ sv: UIScrollView) -> Bool {
+        let inset = sv.adjustedContentInset
+        guard sv.isScrollEnabled, sv.contentSize.height + inset.top + inset.bottom > sv.bounds.height + 0.5 else { return false }
+        return flipped(sv) ? sv.contentOffset.y < pullEnd(sv) - 0.5 : sv.contentOffset.y > pullEnd(sv) + 0.5
+    }
+
+    /// [sv] moves with a finger pulling down now: it isn't at that end yet, or it has a pull to refresh (its pull at
+    /// the top refreshes, as in UIKit's sheet).
     private static func pullScrolls(_ sv: UIScrollView) -> Bool {
         guard sv.isScrollEnabled else { return false }
         if sv.refreshControl != nil || sv.subviews.contains(where: { $0 is UIRefreshControl }) { return true }
-        let inset = sv.adjustedContentInset
-        guard sv.contentSize.height + inset.top + inset.bottom > sv.bounds.height + 0.5 else { return false }
-        // At that end, or past it (pulled into its bounce): it has nothing more to scroll that way.
-        return flipped(sv) ? sv.contentOffset.y < pullEnd(sv) - 0.5 : sv.contentOffset.y > pullEnd(sv) + 0.5
+        return awayFromPullEnd(sv)
     }
 
     /// The offset a finger pulling down scrolls [sv] to: its top, or its end for an inverted list (a chat, drawn upside
@@ -632,9 +699,11 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
 
     /// Over a scroll view that can't take the pull now (at its top, or one that scrolls sideways only), the drag
     /// decides first: its pan waits until the drag has failed (a drag up or sideways), as backPan at the left edge.
+    /// A screen's under a see-through modal always waits.
     private func dismissFirst(_ other: UIGestureRecognizer) -> Bool {
-        guard let sv = other.view as? UIScrollView, other === sv.panGestureRecognizer, touchScrolls.contains(sv),
-              modalTop() != nil else { return false }
+        guard let sv = other.view as? UIScrollView, other === sv.panGestureRecognizer, modalTop() != nil else { return false }
+        if belowScrolls.contains(sv) { return true }
+        guard touchScrolls.contains(sv) else { return false }
         return !touchScrolls.contains(where: Self.pullScrolls)
     }
 
@@ -660,7 +729,8 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
             if [.ended, .cancelled, .failed].contains(g.state) { dismissToJS = false }
             return
         }
-        let progress = min(max(g.translation(in: view).y / max(view.bounds.height, 1), 0), 1)
+        if g.state == .began { dragFrom = g.translation(in: view).y }
+        let progress = min(max((g.translation(in: view).y - dragFrom) / max(view.bounds.height, 1), 0), 1)
         switch g.state {
         case .began: startDrag()
         case .changed: dragMoved(progress)
@@ -671,11 +741,21 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
 
     /// A pan of a scroll view in the modal screen: once it is at its top with the finger still pulling down, the
     /// screen follows the finger from there (the scroll view stays at its top), as UIKit's sheet over its scroll view.
+    /// Only a scroll view that scrolls up and down and was scrolled down in this pan hands over (not a Carousel or a
+    /// sideways rail, nor a list a drag starts on at its top: the drag down took that one already, or it failed).
     @objc private func scrollPanned(_ pan: UIPanGestureRecognizer) {
         guard let sv = pan.view as? UIScrollView else { return }
+        let over = [.ended, .cancelled, .failed].contains(pan.state)
+        if pan.state == .began { awayInPan.remove(sv) }
+        if Self.awayFromPullEnd(sv) { awayInPan.add(sv) }  // (UIKit's own target has scrolled it for this move)
+        defer { if over { awayInPan.remove(sv) } }
         if let h = handoff {
             guard h.scroll === sv else { return }
             sv.contentOffset.y = Self.pullEnd(sv)
+            if h.toJS {
+                if over { handoff = nil }
+                return
+            }
             let progress = min(max((pan.translation(in: view).y - h.from) / max(view.bounds.height, 1), 0), 1)
             switch pan.state {
             case .changed:
@@ -683,18 +763,28 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
             case .ended, .cancelled, .failed:
                 handoff = nil
                 dragEnded(progress, speed: pan.velocity(in: view).y, ended: pan.state == .ended)
-                // It would bounce on from the finger's speed: it stays at its top.
-                sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: Self.pullEnd(sv)), animated: false)
             default:
                 break
             }
+            if over {
+                // It would bounce on from the finger's speed: it stays at its top.
+                sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: Self.pullEnd(sv)), animated: false)
+            }
             return
         }
-        guard pan.state == .changed, pan.velocity(in: view).y > 0, touchScrolls.contains(sv), let m = modalTop(),
-              !app.backWanted.contains(m.entry), !touchScrolls.contains(where: Self.pullScrolls) else { return }
-        print("zn t=\(ZnDebug.ms()) nav: drag down, handed over by a scroll view at its top\(m.box == nil ? "" : " (see-through)")")
-        handoff = (sv, pan.translation(in: view).y)
+        let v = pan.velocity(in: view)
+        guard pan.state == .changed, v.y > 0, v.y > abs(v.x), touchScrolls.contains(sv), awayInPan.contains(sv),
+              Self.scrollsVertically(sv), !touchScrolls.contains(where: Self.pullScrolls), let m = modalTop() else { return }
         sv.contentOffset.y = Self.pullEnd(sv)
+        if app.backWanted.contains(m.entry) {
+            // As a drag that starts at the top: JS decides, once; the list stays at its top until the finger lets go.
+            print("zn t=\(ZnDebug.ms()) nav: drag down handed over on a screen that wants Back → BACK to JS")
+            handoff = (sv, 0, true)
+            app.systemBack()
+            return
+        }
+        print("zn t=\(ZnDebug.ms()) nav: drag down, handed over by a scroll view at its top\(m.box == nil ? "" : " (see-through)")")
+        handoff = (sv, pan.translation(in: view).y, false)
         dragging = m.box
         startDrag()
     }
@@ -707,6 +797,11 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
         }
         modalDrag = drag
         popViewController(animated: true)
+        // UIKit took no pop (nothing started): the drag isn't left set, or a later pop of JS's would take it.
+        if modalDrag === drag, !drag.claimed, transitionCoordinator == nil {
+            print("zn t=\(ZnDebug.ms()) nav: drag down, UIKit started no pop")
+            modalDrag = nil
+        }
     }
 
     private func dragMoved(_ progress: CGFloat) {
@@ -762,8 +857,11 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
 /// and SwiftUI then kept the screen's accessibility frames at the bottom after a spring back (XCUITest, VoiceOver).
 final class ZnModalDrag: NSObject, UIViewControllerAnimatedTransitioning, UIViewControllerInteractiveTransitioning {
     var flight: ZnSharedFlight?
-    /// The transition has ended, either way.
+    /// The transition has ended, either way (called just before UIKit hears it, so a pop UIKit starts from there
+    /// doesn't find this drag).
     var done: () -> Void = {}
+    /// UIKit has this drag's pop (animationControllerFor): a later pop isn't given it again.
+    var claimed = false
     private var ctx: UIViewControllerContextTransitioning?
     private weak var screen: UIView?
     /// The flights' animator (none without shared elements).
@@ -791,8 +889,8 @@ final class ZnModalDrag: NSObject, UIViewControllerAnimatedTransitioning, UIView
     func startInteractiveTransition(_ ctx: UIViewControllerContextTransitioning) {
         guard self.ctx == nil, let from = ctx.view(forKey: .from), let to = ctx.view(forKey: .to),
               let toVC = ctx.viewController(forKey: .to) else {
-            ctx.completeTransition(false)
-            return done()
+            done()
+            return ctx.completeTransition(false)
         }
         self.ctx = ctx
         screen = from
@@ -802,6 +900,7 @@ final class ZnModalDrag: NSObject, UIViewControllerAnimatedTransitioning, UIView
         box.insertSubview(to, belowSubview: from)
         height = max(box.bounds.height, 1)
         if let flight {
+            to.layoutIfNeeded()  // the screen below may have changed size while covered: the flights aim at its frames now
             flight.lift(in: box, toView: to, toFrame: toFrame)
             let a = UIViewPropertyAnimator(duration: transitionDuration(using: ctx), curve: .linear) { flight.fly() }
             a.pauseAnimation()
@@ -863,8 +962,13 @@ final class ZnModalDrag: NSObject, UIViewControllerAnimatedTransitioning, UIView
             }
             screen?.transform = .identity
             flight?.land()
-            ctx.completeTransition(finish)
+            // UIKit's context holds this drag (its animator and interactor): let it go, so the popped box and its
+            // screen aren't kept.
+            self.ctx = nil
+            flights = nil
+            flight = nil
             done()
+            ctx.completeTransition(finish)
         })
     }
 }

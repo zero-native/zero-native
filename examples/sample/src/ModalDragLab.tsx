@@ -4,11 +4,20 @@
 //   - a short, slow drag springs back;
 //   - "With a list": the list scrolls first; only a pull down with the list at its top moves the page;
 //   - "Wants Back": a useBack handler that only counts; the drag asks JS ("back asked N") and the page stays still;
-//   - "Secure" (secure: true) and "See-through" (transparent: true) close the same way.
+//   - "Secure" (secure: true) and "See-through" (transparent: true) close the same way;
+//   - "With a rail": a sideways swipe on the Carousel pages it and never moves the page, even a bit diagonal;
+//   - "Pull to refresh": a pull down on its Scroll refreshes ("refreshed N"), the page stays;
+//   - "Inverted list": a chat opens at its bottom; a pull down scrolls back through it first;
+//   - "With a pan": a zn pan (usePan, up and down) takes a drag that starts on it; the page stays;
+//   - "Light status bar" (statusBar: "light", a dark page): the bar keeps white icons while the page is held down;
+//   - "Photo viewer" (the native imageviewer.full screen as a modal route): its own swipe to close moves the photo, not
+//     the screen;
+//   - on the page, "Back in 2 s" and "Push in 2 s": JS's back or push while a drag is held (NavRace style).
 // The lab's photo and the page's header share a tag: the photo flies with the page and follows the finger.
 // "stack N" is nav.depth() each time the lab gets focus again, so a test can check JS's stack after a close.
-import { Column, Image, Pressable, Row, Scroll, Text } from "@zeronative/ui"
-import { nav, signal, useBack, useFocus } from "@zeronative/core"
+import { Carousel, Column, Image, List, Pressable, Row, Scroll, Stack, Text } from "@zeronative/ui"
+import { nav, setTimeout, signal, useBack, useFocus, usePan } from "@zeronative/core"
+import { ImageViewer } from "@zeronative/image-viewer"
 import { c } from "./tokens"
 
 const PHOTO = "https://picsum.photos/id/1060/600/600"
@@ -56,6 +65,12 @@ export function ModalDragLabScreen() {
         <MdButton label="Wants Back" onPress={() => nav.push("modalDragPage", { wantsBack: true })} />
         <MdButton label="Secure" onPress={() => nav.push("modalDragSecure", {})} />
         <MdButton label="See-through" onPress={() => nav.push("modalDragSeeThrough")} />
+        <MdButton label="With a rail" onPress={() => nav.push("modalDragPage", { rail: true })} />
+        <MdButton label="Pull to refresh" onPress={() => nav.push("modalDragPage", { refresh: true })} />
+        <MdButton label="Inverted list" onPress={() => nav.push("modalDragPage", { inverted: true })} />
+        <MdButton label="With a pan" onPress={() => nav.push("modalDragPage", { pan: true })} />
+        <MdButton label="Light status bar" onPress={() => nav.push("modalDragLight", { dark: true })} />
+        <MdButton label="Photo viewer" onPress={() => void ImageViewer.open({ route: "modalDragViewer", images: [PHOTO] })} />
       </Row>
       <Text testID="md-stack" fontSize={14} color={c.ink}>
         {`stack ${depth()}`}
@@ -80,20 +95,105 @@ function MdWantsBack() {
   )
 }
 
-/** The page: routes modalDragPage (params list, wantsBack) and modalDragSecure. */
-export function ModalDragPageScreen(props: { list?: boolean; wantsBack?: boolean }) {
+const refreshed = signal(0)
+const refreshing = signal(false)
+
+/** A zn pan that moves its box up and down (it takes a drag that starts on it, not the drag down). */
+function MdPan() {
+  const pan = usePan({ axis: "y" })
   return (
-    <Column style={{ flex: 1, backgroundColor: c.white }}>
-      <Image sharedTag="md-photo" src={PHOTO} contentScale="cover" style={{ width: "100%", height: 200 }} />
-      <Column style={{ padding: 16, gap: 10 }}>
-        <Text testID="md-page-title" fontSize={22} fontWeight={800} color={c.ink}>
-          Drag me down
+    <Column style={{ height: 120, borderRadius: 12, backgroundColor: c.pillBg, overflow: "hidden", alignItems: "center", justifyContent: "center" }}>
+      <Stack gesture={pan} style={{ paddingHorizontal: 18, paddingVertical: 12, borderRadius: 20, backgroundColor: "#E0E7FF", transform: [{ translateY: pan.y }] }}>
+        <Text testID="md-pan" fontSize={14} fontWeight={700} color={c.ink}>
+          Pan me
         </Text>
-        <Row style={{ gap: 8 }}>
+      </Stack>
+    </Column>
+  )
+}
+
+const CHAT = Array.from({ length: 40 }, (_, i) => ({ id: i, text: `Message ${i + 1}` }))
+
+/** The page: routes modalDragPage (params list, wantsBack, rail, refresh, inverted, pan, second), modalDragSecure and
+ * modalDragLight (dark). */
+export function ModalDragPageScreen(props: {
+  list?: boolean
+  wantsBack?: boolean
+  rail?: boolean
+  refresh?: boolean
+  inverted?: boolean
+  pan?: boolean
+  second?: boolean
+  dark?: boolean
+}) {
+  const ink = props.dark === true ? c.white : c.ink
+  return (
+    <Column style={{ flex: 1, backgroundColor: props.dark === true ? "#111827" : c.white }}>
+      {props.dark === true ? <Column style={{ height: 120 }} /> : <Image sharedTag="md-photo" src={PHOTO} contentScale="cover" style={{ width: "100%", height: 200 }} />}
+      <Column style={{ padding: 16, gap: 10 }}>
+        <Text testID="md-page-title" fontSize={22} fontWeight={800} color={ink}>
+          {props.second === true ? "Second page" : "Drag me down"}
+        </Text>
+        <Row style={{ gap: 8, flexWrap: "wrap" }}>
           <MdButton label="Close" onPress={() => nav.back()} />
+          <MdButton label="Back in 2 s" onPress={() => setTimeout(() => nav.back(), 2000)} />
+          <MdButton label="Push in 2 s" onPress={() => setTimeout(() => nav.push("modalDragPage", { second: true }), 2000)} />
         </Row>
         {props.wantsBack === true && <MdWantsBack />}
+        {props.rail === true && (
+          <Carousel testID="md-rail" onPageChange={(i) => console.info(`modal-drag rail page ${i}`)} style={{ height: 120 }}>
+            {[1, 2, 3, 4].map((n) => (
+              <Column key={n} style={{ flex: 1, marginHorizontal: 4, borderRadius: 12, backgroundColor: c.pillBg, alignItems: "center", justifyContent: "center" }}>
+                <Text fontSize={18} fontWeight={700} color={c.ink}>{`Card ${n}`}</Text>
+              </Column>
+            ))}
+          </Carousel>
+        )}
+        {props.pan === true && <MdPan />}
+        {props.refresh === true && (
+          <Text testID="md-refreshed" fontSize={14} color={c.ink}>
+            {`refreshed ${refreshed()}`}
+          </Text>
+        )}
       </Column>
+      {props.refresh === true && (
+        <Scroll
+          testID="md-refresh"
+          style={{ flex: 1 }}
+          refreshing={refreshing()}
+          onRefresh={() => {
+            refreshing.set(true)
+            setTimeout(() => {
+              refreshing.set(false)
+              refreshed.set(refreshed() + 1)
+            }, 600)
+          }}
+        >
+          <Column style={{ paddingHorizontal: 16, gap: 8, paddingBottom: 24 }}>
+            {ROWS.slice(0, 6).map((i) => (
+              <Column key={i} style={{ height: 56, borderRadius: 10, backgroundColor: c.pillBg, justifyContent: "center", paddingHorizontal: 12 }}>
+                <Text fontSize={15} fontWeight={600} color={c.ink}>{`Item ${i + 1}`}</Text>
+              </Column>
+            ))}
+          </Column>
+        </Scroll>
+      )}
+      {props.inverted === true && (
+        <List
+          testID="md-chat"
+          data={CHAT}
+          key={(m) => String(m.id)}
+          inverted
+          gap={8}
+          style={{ flex: 1 }}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 8 }}
+          row={(m) => (
+            <Column style={{ height: 48, borderRadius: 10, backgroundColor: c.pillBg, justifyContent: "center", paddingHorizontal: 12 }}>
+              <Text fontSize={15} fontWeight={600} color={c.ink}>{m.text}</Text>
+            </Column>
+          )}
+        />
+      )}
       {props.list === true && (
         <Scroll testID="md-list" style={{ flex: 1 }}>
           <Column style={{ paddingHorizontal: 16, gap: 8, paddingBottom: 24 }}>
