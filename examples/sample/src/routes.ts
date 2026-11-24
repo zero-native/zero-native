@@ -78,6 +78,7 @@ import { PaintLabScreen, PaintFadeListLabScreen } from "./PaintLab"
 import { TextPolishLabScreen, TextPolishLinesLabScreen, TextSpacingLabScreen } from "./TextPolishLab"
 import { NavRaceLabScreen, NavRaceTargetScreen } from "./NavRaceLab"
 import { TouchFixLabScreen } from "./TouchFixLab"
+import { ChecksLabScreen } from "./ChecksLab"
 
 export const routes = defineRoutes({
   home: { path: "/", screen: HomeScreen },
@@ -218,6 +219,9 @@ export const routes = defineRoutes({
   textSpacingLab: { path: "/dev/text-polish/spacing", screen: TextSpacingLabScreen, deepLink: true },
   // 100 List rows with an enter fade (PaintLab.tsx §8), to measure scrolling them. Last, as above.
   paintFadeListLab: { path: "/dev/paint/fade-list", screen: PaintFadeListLabScreen, deepLink: true },
+  // Checks that had no screen: motion text grouping, taps on 3D-turned views, a NativeView's testID and pointerEvents
+  // (ChecksLab.tsx; UI test ChecksLabTests). Last, as above.
+  checksLab: { path: "/dev/checks", screen: ChecksLabScreen, deepLink: true },
 })
 
 // Typed navigation: nav.push("amount", { merchantId }) is checked against these routes.
