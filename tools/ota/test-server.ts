@@ -41,6 +41,10 @@ const appDir = join(dir, "app")
 const home = join(dir, "home")
 const files = { pem: join(dir, "test-key.pem"), pub: join(dir, "test-key.pub"), token: join(dir, "token") }
 
+// The zn-updates this run started, stopped on any exit (a failure too) so port 8796 is free for the next run.
+let server: ReturnType<typeof Bun.spawn> | undefined
+process.on("exit", () => server?.kill())
+
 function fail(message: string): never {
   console.error(`✗ ${message}`)
   process.exit(1)
@@ -91,36 +95,36 @@ async function serve() {
   if (!existsSync(files.token)) writeFileSync(files.token, randomBytes(24).toString("hex"), { mode: 0o600 })
   writeApp("built-in")
   // zn-updates on every interface (local.ts), its data in [dir]; the token is never printed.
-  const server = Bun.spawn(["bun", "run", join(repo, "server/src/local.ts"), "--port", String(port), "--dir", join(dir, "server")], {
+  const child = Bun.spawn(["bun", "run", join(repo, "server/src/local.ts"), "--port", String(port), "--dir", join(dir, "server")], {
     cwd: repo,
     stdout: "pipe",
     stderr: "inherit",
     env: { ...process.env, ADMIN_TOKEN: readFileSync(files.token, "utf8").trim() },
   })
-  process.on("SIGINT", () => {
-    server.kill()
-    process.exit(0)
-  })
+  server = child
+  process.on("SIGINT", () => process.exit(0))
   // Its log, without the lines that hold the token or a sign-in link.
   void (async () => {
     let rest = ""
-    for await (const chunk of server.stdout) {
+    for await (const chunk of child.stdout) {
       const lines = (rest + new TextDecoder().decode(chunk)).split("\n")
       rest = lines.pop() ?? ""
       for (const l of lines) if (!/token|open\?code=|dashboard/i.test(l)) console.log(`  server: ${l}`)
     }
   })()
-  for (let i = 0; i < 100; i++) {
-    if (await fetch(`${base}/health`).then((r) => r.ok, () => false)) break
-    await Bun.sleep(200)
+  let healthy = false
+  for (let i = 0; i < 100 && !healthy; i++) {
+    healthy = await fetch(`${base}/health`).then((r) => r.ok, () => false)
+    if (!healthy) await Bun.sleep(200)
   }
+  if (!healthy) fail(`zn-updates did not answer ${base}/health within 20 s (is port ${port} in use?)`)
   updates("app", "--keys", readFileSync(files.pub, "utf8").trim(), "--name", "Sample (OTA test)")
   const lan = Object.values(networkInterfaces()).flat().filter((x) => x && x.family === "IPv4" && !x.internal).map((x) => x!.address)
   console.log(`OTA test server at ${base} (store and key in ${dir})`)
   console.log(`  simulator: SIMCTL_CHILD_ZN_OTA_URL=http://localhost:${port} SIMCTL_CHILD_ZN_OTA_KEY="$(cat ${files.pub})"`)
   for (const ip of lan) console.log(`  iPhone:    DEVICECTL_CHILD_ZN_OTA_URL=http://${ip}:${port} DEVICECTL_CHILD_ZN_OTA_KEY="$(cat ${files.pub})"`)
   console.log(`  a release: bun run tools/ota/test-server.ts release --mark one${a.dir ? ` --dir ${dir}` : ""}${a.port ? ` --port ${port}` : ""}`)
-  await server.exited
+  await child.exited
 }
 
 function release() {
