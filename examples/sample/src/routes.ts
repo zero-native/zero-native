@@ -15,6 +15,7 @@ import { StorageScreen } from "./StorageScreen"
 import { AnimationScreen } from "./AnimationScreen"
 import { DevScreen } from "./DevScreen"
 import { PressScreen } from "./PressScreen"
+import { TouchLabScreen } from "./TouchLab"
 import { ComponentsScreen } from "./ComponentsScreen"
 import { CrashLabScreen, CrashScreen } from "./CrashLabScreen"
 import { UpdatesScreen } from "./UpdatesScreen"
@@ -194,6 +195,8 @@ export const routes = defineRoutes({
   imageViewerPageLab: { path: "/dev/image-viewer/page", screen: ImageViewerPageLabScreen, deepLink: true },
   // An absolute layer at opacity 0 over the image viewer lab (see-through): it stops taps, as on Android. Last, as above.
   ivInvisibleLayer: { path: "/dev/image-viewer/invisible-layer", screen: InvisibleLayerScreen, transparent: true, transition: "none", restore: false },
+  // Who takes a tap where Pressables, scrolls and overlays meet (TouchLab.tsx). Last, as above.
+  touchLab: { path: "/dev/touch", screen: TouchLabScreen, deepLink: true },
 })
 
 // Typed navigation: nav.push("amount", { merchantId }) is checked against these routes.
