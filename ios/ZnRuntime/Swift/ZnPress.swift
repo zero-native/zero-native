@@ -55,8 +55,9 @@ final class ZnPressState {
 /// Pressable's press feedback, as Android's ZnRipple / ZnHighlight (ZnAnimation.kt), drawn over the content and inside
 /// the node's shape. ripple (the default): a circle from the finger that moves to the center as it grows (from the
 /// center when borderless), black at 12 % (a `rippleColor` at 24 %;
-/// `rippleOpacity` wins), growing to cover the node in ~225 ms and fading ~150 ms after the finger leaves (Material's
-/// timings); `rippleBorderless`: not clipped, `rippleRadius` its size. highlight: a flat overlay while pressed.
+/// `rippleOpacity` wins), fading in over 75 ms, growing to cover the node in ~225 ms, held at least 225 ms from the
+/// press and fading 150 ms (Android's RippleDrawable: a quick tap shows ~375 ms, not a blink); `rippleBorderless`: not
+/// clipped, half the node's diagonal (or `rippleRadius`) its size. highlight: a flat overlay while pressed.
 struct ZnPressFeedback: View {
     let s: ZnNodeSpec
     let state: ZnPressState
@@ -80,7 +81,9 @@ struct ZnPressFeedback: View {
                 // was; a bounded one starts at the finger and moves to the center while it grows, ending at the
                 // corners. (iOS drew both around the finger, so a tap near an icon's edge rippled off to one side.)
                 let start = s.rippleBorderless ? CGPoint(x: size.width / 2, y: size.height / 2) : origin
-                let r = s.rippleRadius ?? (s.rippleBorderless ? max(size.width, size.height) / 2 : hypot(size.width, size.height) / 2)
+                // Half the diagonal both ways, as Android (material-ripple's getRippleEndRadius): a 40 pt round back
+                // button's borderless ripple reaches ~8 pt past it (it used half the longest side, inside the button).
+                let r = s.rippleRadius ?? hypot(size.width, size.height) / 2
                 let alpha = s.rippleOpacity ?? (s.rippleColor == nil ? 0.12 : 0.24)
                 ZnRippleCircle(start: start, radius: r, scale: grown ? 1 : 0.2, shown: shown ? 1 : 0)
                     .fill(znRippleColor(s.rippleColor))
@@ -95,17 +98,28 @@ struct ZnPressFeedback: View {
                 downAt = Date()
                 var t = Transaction()
                 t.disablesAnimations = true
-                withTransaction(t) { grown = false; shown = true }
-                withAnimation(.easeOut(duration: 0.225)) { grown = true }
+                withTransaction(t) { grown = false }
+                withAnimation(.linear(duration: ZnRippleTiming.enter)) { shown = true }
+                withAnimation(.easeOut(duration: ZnRippleTiming.grow)) { grown = true }
             }
             .onChange(of: state.pressed) { _, pressed in
                 guard !pressed else { return }
-                // A quick tap still shows the ripple grow a little before it fades.
-                let wait = max(0, 0.1 - Date().timeIntervalSince(downAt))
-                withAnimation(.easeOut(duration: 0.15).delay(wait)) { shown = false }
+                // A quick tap still shows the ripple grown before it fades.
+                let wait = max(0, ZnRippleTiming.hold - Date().timeIntervalSince(downAt))
+                withAnimation(.easeOut(duration: ZnRippleTiming.exit).delay(wait)) { shown = false }
             }
         }
     }
+}
+
+/// The ripple's timings, as Android's RippleDrawable (RippleForeground): it fades in over 75 ms and grows in 225 ms; at
+/// its end it is held until 225 ms after the press, then fades in 150 ms. (iOS showed it at once, held it 0.1 s and
+/// faded it in 0.15 s: about 180 ms in all on a quick tap, a blink next to Android's ~375 ms.)
+enum ZnRippleTiming {
+    static let enter: TimeInterval = 0.075
+    static let grow: TimeInterval = 0.225
+    static let hold: TimeInterval = 0.225
+    static let exit: TimeInterval = 0.15
 }
 
 /// The ripple's colour: [c]'s own alpha left out, as Android's ripple (color.copy(alpha = the ripple's alpha)). A
@@ -166,7 +180,8 @@ struct ZnPressable<Label: View>: View {
             } label: {
                 label()
             }
-            .buttonStyle(ZnPressStyle(scale: s.pressScale, opacity: s.pressOpacity))
+            .buttonStyle(ZnPressStyle(scale: s.pressScale, opacity: s.pressOpacity,
+                                      group: s.pressOpacity < 1 && s.drawsOverlappingParts))
             .disabled(disabled)
             .modifier(ZnPressA11y(ctx: ctx, s: s, inst: inst, disabled: disabled))
         case .uiKit:
@@ -195,9 +210,12 @@ extension ZnPressLink {
 struct ZnPressStyle: ButtonStyle {
     let scale: CGFloat
     let opacity: Double
+    /// pressOpacity fades the Pressable as one picture (ZnOpacityGroup, ZnRenderer.swift), as the UIKit variant's.
+    var group = false
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .scaleEffect(configuration.isPressed ? scale : 1)
+            .modifier(ZnOpacityGroup(on: group))
             .opacity(configuration.isPressed ? opacity : 1)
             .animation(.spring(response: 0.2, dampingFraction: 0.8), value: configuration.isPressed)
     }
@@ -271,7 +289,9 @@ final class ZnTouchControl: UIView {
     var repeatDelay: TimeInterval?
     var repeatInterval: TimeInterval = 0.1
     var haptic = false
-    /// A disabled Pressable still takes the touch (nothing under it gets it), but does nothing, as on Android.
+    /// A disabled Pressable takes no touch: the Pressable around it (a tappable card) gets it, or what is under it, as
+    /// on Android (no pointer input while disabled, ZnPress.kt) and in RN. It used to take the touch and do nothing, so
+    /// a card with a disabled button in it didn't open from there.
     var isEnabled = true
     private var timer: Timer?
     private var handled = false  // a long press or a repeat fired: no onPress on release
@@ -291,7 +311,7 @@ final class ZnTouchControl: UIView {
     private func holds(_ other: ZnTouchControl) -> Bool { other.own.map { ancestors.contains($0) } ?? false }
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        guard let hit = super.hitTest(point, with: event), let window else { return nil }
+        guard isEnabled, let hit = super.hitTest(point, with: event), let window else { return nil }
         let p = convert(point, to: window)
         // Sizes and the finger in the window's space: the touch views sit inside their Pressables' layers, so a scaled
         // or turned parent scales and turns them (its children with it).
@@ -305,8 +325,9 @@ final class ZnTouchControl: UIView {
         let screen = screenController
         // Only controls of the same screen: a screen under the top one (still in the hierarchy during and after a
         // push) must not take its taps (found 2026-11-08: Home's buttons blocked the Dev screen's).
+        // A disabled one takes nothing (its own hitTest), so it doesn't count here either.
         for other in ZnTouchControl.live.allObjects
-        where other !== self && other.window === window && !other.isHidden && other.screenController === screen {
+        where other !== self && other.window === window && !other.isHidden && other.isEnabled && other.screenController === screen {
             let q = other.convert(p, from: window)
             // Only where it shows: not clipped away by a Scroll or List, not in a hidden or reused cell.
             guard other.bounds.contains(q), other.reaches(p, in: window) else { continue }
@@ -378,7 +399,11 @@ final class ZnTouchControl: UIView {
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        let late = self.late
+        // Inside a Scroll or List UIKit hands the touch over after its content delay (~150 ms): the touch's own time says
+        // when the finger went down, so onLongPress comes 0.5 s after it, not 0.65 s (as Android, which has no delay).
+        // Capped below the long press, so an odd timestamp can't fire it at once.
+        let since = touches.first.map { CACurrentMediaTime() - $0.timestamp } ?? 0
+        let late = min(max(self.late, since, 0), 0.4)
         self.late = 0
         guard isEnabled, !active else { return }
         let at = touches.first?.location(in: self) ?? CGPoint(x: bounds.midX, y: bounds.midY)
