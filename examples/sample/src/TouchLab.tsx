@@ -236,7 +236,7 @@ function TouchLabMore() {
         </Pressable>
         <Pressable testID="web-card" onPressIn={() => log.note("web card in")} onPressOut={(e) => log.out("web card", e)} onPress={() => log.press("web card")} style={{ flex: 1, height: 90, padding: 8, backgroundColor: "#FFFFFF" }}>
           <Column style={{ flex: 1 }}>
-            <WebView html={WEB} />
+            <WebView html={WEB} allowedHosts={[]} />
           </Column>
         </Pressable>
       </Row>

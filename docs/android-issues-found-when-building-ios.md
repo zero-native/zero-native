@@ -117,6 +117,11 @@ Each entry says:
 | A101 | 2026-11-24 | image-viewer (Android) | The image viewer's invisible ✕ takes taps while the viewer opens | check |
 | A102 | 2026-11-24 | Layout (Android) | Check: a Column raised by minWidth stretches its children to that width (layout case 48) | check |
 | A103 | 2026-11-24 | Touch (Android) | hitSlop shrinks a small Pressable's touch area below Compose's 48 dp minimum | open |
+| A104 | 2026-11-24 | Layout (Android) | A rounded Pressable clips all its children, which React Native doesn't (iOS now matches Android) | open, Pavan to decide (keep as a zn rule or drop on both) |
+| A105 | 2026-11-24 | Text (Android) | numberOfLines={0} probably throws (BasicText maxLines must be at least 1) | open |
+| A106 | 2026-11-24 | TextField (Android) | returnKeyType: Done keeps focus; Next may land on a read-only field or wrap | check |
+| A107 | 2026-11-24 | Theme (Android) | colorScheme() reports the phone's night mode while the Light theme keeps windows and dialogs light | open, Pavan to decide |
+| A108 | 2026-11-24 | Navigation and touch (Android) | Check: the iOS polish round's labs (nav race, edge swipe over a rail, touch) | check |
 
 ---
 
@@ -1053,3 +1058,44 @@ Each entry says:
 - **Fix:** `max(48 dp, size + 2 × slop)` per axis (the base configuration's minimum, not a fixed 48).
 - **Check:** a 24 dp Pressable with `hitSlop={4}`: tap 10 dp outside its edge; it should still fire (it does without
   the prop).
+
+## A104. A rounded Pressable clips all its children, which React Native doesn't (iOS now matches Android) (from iOS work, polish round)
+- **Status:** open, Pavan to decide (keep as a zn rule, or drop it on both). Found on the Mac 2026-11-24.
+- **Why:** `ZnTemplate.kt` ~869-876 (`clipsByDefault`) clips a rounded Pressable's children to its corners. React
+  Native doesn't. iOS now does the same as Android (polish round), so the two platforms agree; it is an RN difference.
+- **Check:** `/dev/paint` §1: the first card's picture has round corners. Also `/dev/paint` §3 on a phone: the stripe
+  shows through the translucent and the empty bordered cards, the shadow only outside them; and `/dev/layout` case 49
+  (look for "c49" FAIL lines, especially c49h, ZnWrap.kt).
+
+## A105. numberOfLines={0} probably throws (BasicText maxLines must be at least 1) (from iOS work, polish round)
+- **Status:** open (likely a crash). Found on the Mac 2026-11-24.
+- **Problem:** `ZnTemplate.kt` ~233 keeps 0, and `ZnRenderer.kt` ~410/416/421/427 pass `maxLines = 0` to BasicText,
+  which throws IllegalArgumentException below 1. React Native's 0 means no limit; iOS now does that.
+- **Fix:** treat `<= 0` as `Int.MAX_VALUE`.
+- **Check:** open `zn://sample/dev/text-polish/lines`.
+
+## A106. returnKeyType: Done keeps focus; Next may land on a read-only field or wrap (from iOS work, polish round)
+- **Status:** check. Found on the Mac 2026-11-24.
+- **Why:** `ZnTextField.kt` ~165 and ~172-176: Done only hides the keyboard (the field keeps focus, no onBlur); Next uses
+  ImeAction.Next, and a readOnly BasicTextField can take focus, so Next may stop on it. iOS: Done blurs, Next skips
+  read-only fields and fields under pointerEvents "none", reads in reading order with a List's own rows first, and
+  closes the keyboard on the last field.
+- **Check:** `/dev/text-polish` §2 (Done on D: onBlur?; Next on B: "focus RO"?), §8 (Next goes r1 → r8, then to a §10
+  note), and Next on the last field.
+
+## A107. colorScheme() reports the phone's night mode while the Light theme keeps windows and dialogs light (from iOS work, polish round)
+- **Status:** open, Pavan to decide (rec: keep and document; iOS's Light template says "light", as React Native iOS).
+  Found on the Mac 2026-11-24.
+- **Problem:** `ZnActivity.kt` ~83-84 reports the phone's night mode, while the template's
+  Theme.Material.Light.NoActionBar keeps the window and AlertDialogs light, so an app that themes by colorScheme() draws
+  dark screens with light dialogs. New iOS apps now set UIUserInterfaceStyle Light.
+- **Check:** phone in dark mode: the CoreLab "scheme:" line, then Alert.alert in the RN basics lab.
+
+## A108. Check: the iOS polish round's labs (nav race, edge swipe over a rail, touch) (from iOS work, polish round)
+- **Status:** check. Found on the Mac 2026-11-24.
+- **Check (navigation):** `zn://sample/dev/nav/race`, "Run race": expect "result: 44/44"; with `{"stepwise":true}` each
+  case's wait text is on the screen shown. "Push wants Back", then a system back gesture from the edge over the rail:
+  "back asked 1", the rail doesn't move. "Push in 2 s", hold a predictive-back gesture past 2 s and release: Back from
+  "Race target 9" shows the lab.
+- **Check (touch):** `/dev/touch`, and with `--params '{"mode":"more"}'`: the box-only and "none" rails don't scroll and
+  their cards press; the WebView card doesn't press; the long-press card held on its rail long-presses at about 0.5 s.
