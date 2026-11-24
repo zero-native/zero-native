@@ -122,6 +122,10 @@ Each entry says:
 | A106 | 2026-11-24 | TextField (Android) | returnKeyType: Done keeps focus; Next may land on a read-only field or wrap | check |
 | A107 | 2026-11-24 | Theme (Android) | colorScheme() reports the phone's night mode while the Light theme keeps windows and dialogs light | open, Pavan to decide |
 | A108 | 2026-11-24 | Navigation and touch (Android) | Check: the iOS polish round's labs (nav race, edge swipe over a rail, touch) | check |
+| A109 | 2026-11-24 | Lists (Android) | A reorderable inverted (or RTL horizontal) List likely picks and moves the wrong row | check (likely) |
+| A110 | 2026-11-24 | TextField (Android) | Check: returnKeyType next in an inverted List (iOS goes down the screen; Android likely by row order) | check |
+| A111 | 2026-11-24 | Layout and text (Android) | Check: round 6's lab cases (layout 50a-j and 51, text spacing, touch fixes, fade list) | check |
+| A112 | 2026-11-24 | Shared (compiler) | <NativeView> allows testID and pointerEvents in its type, but the compiler rejects them | open, Pavan to decide (rec: pass them through) |
 
 ---
 
@@ -1103,3 +1107,32 @@ Each entry says:
   "Race target 9" shows the lab.
 - **Check (touch):** `/dev/touch`, and with `--params '{"mode":"more"}'`: the box-only and "none" rails don't scroll and
   their cards press; the WebView card doesn't press; the long-press card held on its rail long-presses at about 0.5 s.
+
+## A109. A reorderable inverted (or RTL horizontal) List likely picks and moves the wrong row (from iOS work, round 6)
+- **Status:** check (likely). Found on the Mac 2026-11-24.
+- **Problem:** `ZnReorder.kt` ~102-115 (pick) and ~136-138 (swap) compare the finger's position from the top / left
+  with `LazyListItemInfo.offset`, which counts from the bottom under `reverseLayout = s.inverted` (`ZnRenderer.kt` ~914);
+  `ZnRenderer.kt` ~841-842 passes only `horizontal`. A horizontal list in RTL has the same risk.
+- **Check:** `/dev/checks` d): long press Row 1 (at the bottom) and drag it up two rows: onReorder 0 → 2.
+
+## A110. Check: returnKeyType next in an inverted List (iOS goes down the screen; Android likely by row order) (from iOS work, round 6)
+- **Status:** check. Found on the Mac 2026-11-24.
+- **Why:** iOS's ZnFieldFocus.focusNext goes in screen order, so in an inverted List n3 → n2 and from n1 it leaves the
+  List. Compose's focus search likely goes by row order. Pavan to pick one (rec: row order, as Android).
+- **Check:** `/dev/checks` g): focus n1 and press Next: Android should go to n2 (above).
+
+## A111. Check: round 6's lab cases (layout 50a-j and 51, text spacing, touch fixes, fade list) (from iOS work, round 6)
+- **Status:** check. Found on the Mac 2026-11-24.
+- **Check:** `/dev/layout` should give 118/118 and "layout-overflow 3/3 pass" (50i: a Stack with justifyContent
+  flex-end, child at y 50 in a 60 tall share). `zn://sample/dev/text-polish/spacing` with `adb logcat | grep
+  text-polish`: "width pill" = "width pill-plain" + 30, "lineHeight tight ok", "lineHeight loose ok" (assumes Compose's
+  LineHeightStyle Trim.Both). `/dev/paint/fade-list` scrolls smoothly. `--route touchFixLab` §1/§2: fx-log reads only
+  "switch on" / "rail switch on" (A53). `/ws`: the "80 sockets" case now opens to 127.0.0.1, plus a timed "20 sockets
+  to localhost". Dev hub → More labs → "Push at start", then Back: lands on "Start screen" with no doubled or missing
+  screen (a push during a slide-in).
+
+## A112. <NativeView> allows testID and pointerEvents in its type, but the compiler rejects them (from iOS work, round 6)
+- **Status:** open, Pavan to decide (rec: pass them through). Found on the Mac 2026-11-24.
+- **Problem:** `compiler/src/compile.ts` ~2278 with `packages/ui/src/index.ts` ~468: the type allows them, the build
+  fails. The iOS runtime already handles both. Both platforms.
+- **Check:** add `testID="x"` to a NativeView and run `bun run sample:js`.
