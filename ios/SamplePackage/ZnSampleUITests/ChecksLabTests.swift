@@ -70,4 +70,87 @@ final class ChecksLabTests: ZnUITestCase {
         reveal(id("under-native")).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         status("under 1")
     }
+
+    /// An inverted List's dropped row shows at its new place once it lands: its cell is hidden while the drag preview
+    /// flies there (ZnListReorder.drop) and must come back, also for a drop where it started. Read from the screen's
+    /// pixels: the row's grey (#F1F5F9), not the list's white behind a hidden cell. (The preview itself, upright while
+    /// dragged, is checked by eye in a recording: XCUITest's drag can't be paused.)
+    func testInvertedDropShowsTheRow() {
+        let rows = reveal(id("rows-list"))
+        let r1 = rows.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 1)).withOffset(CGVector(dx: 0, dy: -28))
+        // Picked up and let go where it was (a small move and back): no reorder, the row still shows.
+        r1.press(forDuration: 0.8, thenDragTo: r1.withOffset(CGVector(dx: 0, dy: -10)), withVelocity: .slow, thenHoldForDuration: 0.6)
+        Thread.sleep(forTimeInterval: 1.2)
+        XCTAssertEqual(id("rows-order").label, "rows: r1, r2, r3, r4, r5, r6")
+        assertRowShows("Row 1 (44)")
+        // Moved past two rows: it lands between Row 3 and Row 4 and shows there.
+        r1.press(forDuration: 0.8, thenDragTo: r1.withOffset(CGVector(dx: 0, dy: -190)), withVelocity: .slow, thenHoldForDuration: 0.4)
+        status("reorder rows 0 → 2")
+        Thread.sleep(forTimeInterval: 1.2)
+        let row1 = text("Row 1 (44)").frame, row3 = text("Row 3 (60)").frame, row4 = text("Row 4 (120)").frame
+        XCTAssertTrue(row4.midY < row1.midY && row1.midY < row3.midY, "Row 1 at \(row1), not between Row 4 \(row4) and Row 3 \(row3)")
+        assertRowShows("Row 1 (44)")
+    }
+
+    /// The row whose label is [label] is drawn: the pixels just right of its label are the row's grey, not white.
+    private func assertRowShows(_ label: String, file: StaticString = #filePath, line: UInt = #line) {
+        let f = text(label).frame
+        let shot = XCUIScreen.main.screenshot().image
+        guard let cg = shot.cgImage, let data = cg.dataProvider?.data, let bytes = CFDataGetBytePtr(data) else {
+            return XCTFail("no screenshot", file: file, line: line)
+        }
+        let scale = CGFloat(cg.width) / shot.size.width
+        // 30 pt right of the label's end, on its middle line: the row's own background.
+        let x = Int((f.maxX + 30) * scale), y = Int(f.midY * scale)
+        let i = y * cg.bytesPerRow + x * (cg.bitsPerPixel / 8)
+        let (r, g, b) = (Int(bytes[i]), Int(bytes[i + 1]), Int(bytes[i + 2]))
+        // BGRA or RGBA: the grey's channels are 241, 245, 249 either way round; white is 255, 255, 255.
+        XCTAssertTrue(max(r, b) <= 251 && min(r, b) >= 237 && abs(g - 245) <= 4,
+                      "\(label): pixel (\(r), \(g), \(b)) at \(x),\(y) is not the row's grey: its cell is hidden", file: file, line: line)
+    }
+
+    /// The f) fields: seven keys in one burst into a multiline field JS regroups all count (A93: a key typed during
+    /// JS's regroup was put before the last digit, 12,35,674); JS's 6 digits fill a maxLength 4 field (JS's value
+    /// isn't cut, as before); a read-only field takes JS's text.
+    func testValuesJSPutsInFields() {
+        let multi = reveal(id("multi-group"), hittable: false)
+        multi.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        multi.typeText("1234567")
+        waitValue(multi, "12,34,567", timeout: 3)
+        reveal(id("set-values")).tap()
+        status("values set")
+        waitValue(id("max4"), "123456")
+        waitValue(id("ro-js"), "read-only 1")
+    }
+
+    /// returnKeyType "next" goes by row order, as Android's focus search: n1 (at the bottom of the inverted List) →
+    /// n2 → n3 → n4 (each above the last), then the sideways List after it: s1 → s2 → s3 → s4 (s4 starts past the
+    /// List's edge: it is shown, then focused).
+    func testNextByRowOrder() {
+        ChecksLabTests.nextGoesByRowOrder(self)
+    }
+
+    static func nextGoesByRowOrder(_ t: ZnUITestCase) {
+        let n1 = t.app.textFields.matching(NSPredicate(format: "placeholderValue == %@", "n1 (next)")).firstMatch
+        t.reveal(n1).tap()
+        t.waitLabel(t.id("next-focus"), "focus n1")
+        for next in ["n2", "n3", "n4", "s1", "s2", "s3", "s4"] {
+            t.app.typeText("\n")
+            t.waitLabel(t.id("next-focus"), "focus \(next)")
+        }
+    }
+}
+
+/// "next" in a right-to-left layout (forced with -AppleTextDirection / -NSForceRightToLeftWritingDirection, so the
+/// sample needn't list an RTL language): still row order, so in the sideways List s2 is left of s1.
+final class NextRtlTests: ZnUITestCase {
+    func testNextByRowOrderRightToLeft() {
+        launch("checksLab", arguments: ["-AppleTextDirection", "YES", "-NSForceRightToLeftWritingDirection", "YES"],
+               ready: "checks-status")
+        let s1 = app.textFields.matching(NSPredicate(format: "placeholderValue == %@", "s1 (next)")).firstMatch
+        let s2 = app.textFields.matching(NSPredicate(format: "placeholderValue == %@", "s2 (next)")).firstMatch
+        reveal(s1)
+        XCTAssertLessThan(s2.frame.midX, s1.frame.midX, "the layout isn't right to left")
+        ChecksLabTests.nextGoesByRowOrder(self)
+    }
 }
