@@ -9,10 +9,11 @@
 // so a value from JS puts the cursor at the end.
 //
 // As ZnTextField.kt: the placeholder in placeholderColor (#9CA3AF when not written) with the field's font;
-// selectionColor tints the cursor, the selection handles and the highlight (not written: the app's tint, iOS's own);
-// autoCapitalize and autoCorrect as Android's KeyboardOptions (ZnFieldRules). iOS differences: the highlight is
-// UIKit's lighter shade of the tint (Android: the colour at 30%); without selectionColor the cursor is the app's tint,
-// not the text colour; spell checking follows autoCorrect (Android has no separate switch).
+// selectionColor tints the cursor, the selection handles and the highlight; not written, the cursor is the text
+// colour, as Android's cursorBrush (selectionColor ?: color); autoCapitalize and autoCorrect as Android's
+// KeyboardOptions (ZnFieldRules). iOS differences: the highlight is UIKit's lighter shade of the tint (Android: the
+// colour at 30%); without selectionColor the handles and the highlight follow the text colour too (one tint on iOS;
+// Android keeps its theme's there); spell checking follows autoCorrect (Android has no separate switch).
 import SwiftUI
 import UIKit
 
@@ -142,9 +143,10 @@ extension UITextAutocapitalizationType {
 }
 
 /// autoCapitalize, autoCorrect and selectionColor on a UITextField or UITextView, each only when it changes (setting
-/// one while focused reloads the keyboard, and only then).
+/// one while focused reloads the keyboard, and only then). [textColor]: the cursor's colour when selectionColor isn't
+/// written (Android's cursorBrush).
 @MainActor
-private func znApplyInputTraits(_ v: UIView, _ s: ZnNodeSpec) {
+private func znApplyInputTraits(_ v: UIView, _ s: ZnNodeSpec, textColor: UIColor) {
     let cap = UITextAutocapitalizationType(ZnFieldRules.autocap(s.autoCapitalize, secure: s.secure, keyboardType: s.keyboardType))
     let correct: UITextAutocorrectionType = ZnFieldRules.autocorrect(s.autoCorrect, secure: s.secure) ? .default : .no
     let spell: UITextSpellCheckingType = correct == .no ? .no : .default
@@ -159,8 +161,10 @@ private func znApplyInputTraits(_ v: UIView, _ s: ZnNodeSpec) {
         if t.spellCheckingType != spell { t.spellCheckingType = spell; changed = true }
     }
     if changed && v.isFirstResponder { v.reloadInputViews() }
-    // Not written: left alone, so the field keeps the tint of the views around it (the app's). It is static.
-    if let tint = s.selectionColor.map(UIColor.init), v.tintColor != tint { v.tintColor = tint }
+    // Not written: the text colour (it may come from a slot), as Android's cursor; iOS blue looked out of place in a
+    // branded field (ZeroBill's search bar).
+    let tint = s.selectionColor.map(UIColor.init) ?? textColor
+    if v.tintColor != tint { v.tintColor = tint }
 }
 
 /// editable: a slot's null counts as editable, as on Android (`!= false`).
@@ -528,7 +532,7 @@ struct ZnUIKitField: UIViewRepresentable {
         }
         f.isSecureTextEntry = s.secure
         f.keyboardType = znKeyboard(s.keyboardType)
-        znApplyInputTraits(f, s)
+        znApplyInputTraits(f, s, textColor: color)
         // The keyboard's autofill (the user's own phone number, email, an SMS code). Only when it changes: setting it
         // while focused reloads the keyboard's suggestions.
         let hint = znContentType(s.autoComplete)
@@ -650,7 +654,7 @@ struct ZnSwiftUIField: View {
             .strikethrough(s.decorationLine == Registry.TextDecorationLine.lineThrough, pattern: pattern)
             .foregroundStyle(look.color)
             .znFieldA11y(s, label: look.label)
-            .tint(s.selectionColor)
+            .tint(s.selectionColor ?? look.color)  // the cursor: the text colour when not written, as Android
             .textInputAutocapitalization(cap)
             .autocorrectionDisabled(!ZnFieldRules.autocorrect(s.autoCorrect, secure: s.secure))
             .disabled(!look.editable)
@@ -791,7 +795,7 @@ struct ZnUIKitTextView: UIViewRepresentable {
         let color = UIColor(look.color)
         if v.textColor != color { v.textColor = color }
         v.keyboardType = znKeyboard(s.keyboardType)
-        znApplyInputTraits(v, s)
+        znApplyInputTraits(v, s, textColor: color)
         let hint = znContentType(s.autoComplete)
         if v.textContentType != hint { v.textContentType = hint }
         v.returnKeyType = znReturnKey(s.returnKeyType) ?? .default
