@@ -17,5 +17,5 @@ for (const suite of iosSuites()) {
     const r = Bun.spawnSync([process.execPath, "run", join(root, "tools/ios-unit-test.ts"), suite], { cwd: root, stdout: "pipe", stderr: "pipe" })
     const out = r.stdout.toString() + r.stderr.toString()
     expect({ exit: r.exitCode, out: out.includes("1 suite(s) passed") ? "passed" : out }).toEqual({ exit: 0, out: "passed" })
-  }, 180_000)
+  }, 600_000)  // a suite builds with swiftc -O (draw: ~16 s alone); under a load of 190 (three Xcode builds) 180 s wasn't enough
 }

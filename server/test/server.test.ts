@@ -87,7 +87,7 @@ beforeAll(async () => {
     publicKeys: [keys.publicBase64, backup.publicBase64],
     store: { android: { packages: { "com.shop": "production", "com.shop.staging": "staging" } }, ios: { appStoreId: "123" } },
   })
-})
+}, 60_000)  // PGlite's start and the migrations: well under 5 s (bun's default) alone, not on a Mac busy with builds
 
 afterAll(async () => {
   await stop()
@@ -97,7 +97,7 @@ afterAll(async () => {
     await admin.query(`DROP SCHEMA ${pgSchema} CASCADE`)
     await admin.close()
   }
-})
+}, 60_000)
 
 describe("json columns", () => {
   test("keys and store come back as a list and an object (not JSON text)", async () => {
