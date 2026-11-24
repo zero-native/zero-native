@@ -11,13 +11,18 @@
 //    touches: a Pressable counts taps, a TextField takes typing.
 // 5. An enter / exit fade fades the element as one picture too (round 6, 2026-11-24).
 // 6. A picture that isn't in memory fades in over 150 ms, as Coil's crossfade; one in memory shows at once.
-import { Box, Column, Image, Pressable, Row, Scroll, Stack, Text, TextField } from "@zeronative/ui"
+// 7. The same in a List's recycled rows: once its two pictures are in memory, rows scrolled in again don't fade.
+import { Box, Column, Image, List, Pressable, Row, Scroll, Stack, Text, TextField } from "@zeronative/ui"
 import { signal } from "@zeronative/core"
 import { c } from "./tokens"
 
 const taps = signal(0)
 const typed = signal("")
 const entered = signal(false)
+const pictureRows = Array.from({ length: 40 }, (_, i) => ({
+  id: `p${i}`,
+  src: i % 2 === 0 ? "asset:images/canvas-test.png" : "asset:images/offer-placeholder.png",
+}))
 const picture = signal("asset:images/offer-placeholder.png")
 
 const A = "#EF4444"
@@ -128,6 +133,20 @@ export function PaintLabScreen() {
           </Pressable>
           <Image testID="paint-picture" src={picture()} loading="shimmer" style={{ width: 90, height: 60, borderRadius: 8 }} />
         </Row>
+
+        <PaintTitle text="7. A List of 40 rows with two pictures: scrolled down and back, rows fade only the first time a picture loads" />
+        <List
+          testID="paint-pic-list"
+          horizontal
+          data={pictureRows}
+          key={(r) => r.id}
+          style={{ height: 64 }}
+          row={(r) => (
+            <Column style={{ paddingEnd: 8 }}>
+              <Image src={r.src} loading="shimmer" style={{ width: 64, height: 64, borderRadius: 8 }} />
+            </Column>
+          )}
+        />
       </Column>
     </Scroll>
   )
