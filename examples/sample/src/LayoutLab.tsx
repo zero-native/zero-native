@@ -129,6 +129,10 @@ const EXPECT: Record<string, Frame> = {
   // Column above a 40 tall footer gets 60 and the footer stays at 60; the same in a Row (minWidth 180 next to 50).
   // iOS drew the child at its min, over the footer, until 2026-11-24.
   c50a: [0, 0, 200, 60], c50b: [0, 60, 200, 40], c50c: [0, 0, 150, 20], c50d: [150, 0, 50, 20],
+  // The same with children: the flex child lays them out in its share, not in its min (a flex-end Column, Row and
+  // Stack put their child at the share's end, not past it under the footer).
+  c50e: [0, 0, 200, 60], c50f: [0, 50, 200, 10], c50g: [0, 0, 150, 20], c50h: [140, 0, 10, 20],
+  c50i: [0, 0, 200, 60], c50j: [0, 50, 20, 10],
 }
 
 // 51. Content bigger than its box with justifyContent center / flex-end (checked apart from EXPECT: the frames differ by
@@ -594,6 +598,24 @@ export function LayoutLabScreen() {
             <Box testID="c50c" onLayout={L("c50c")} style={{ flex: 1, minWidth: 180, height: 20, backgroundColor: A }} />
             <Box testID="c50d" onLayout={L("c50d")} style={{ width: 50, height: 20, backgroundColor: B }} />
           </Row>
+          <Column style={{ width: 200, height: 100, backgroundColor: BG }}>
+            <Column testID="c50e" onLayout={L("c50e")} justifyContent="flex-end" style={{ flex: 1, minHeight: 80, backgroundColor: A }}>
+              <Box testID="c50f" onLayout={L("c50f")} style={{ height: 10, backgroundColor: B }} />
+            </Column>
+            <Box style={{ height: 40, backgroundColor: B }} />
+          </Column>
+          <Row style={{ width: 200, height: 20, backgroundColor: BG }}>
+            <Row testID="c50g" onLayout={L("c50g")} justifyContent="flex-end" style={{ flex: 1, minWidth: 180, height: 20, backgroundColor: A }}>
+              <Box testID="c50h" onLayout={L("c50h")} style={{ width: 10, height: 20, backgroundColor: B }} />
+            </Row>
+            <Box style={{ width: 50, height: 20, backgroundColor: B }} />
+          </Row>
+          <Column style={{ width: 200, height: 100, backgroundColor: BG }}>
+            <Stack testID="c50i" onLayout={L("c50i")} justifyContent="flex-end" style={{ flex: 1, minHeight: 80, backgroundColor: A }}>
+              <Box testID="c50j" onLayout={L("c50j")} style={{ width: 20, height: 10, backgroundColor: B }} />
+            </Stack>
+            <Box style={{ height: 40, backgroundColor: B }} />
+          </Column>
         </Case>
         <Case title="51. Content bigger than its box: centred / at the end">
           <Text testID="layout-overflow-summary" fontSize={12} color={c.ink}>
