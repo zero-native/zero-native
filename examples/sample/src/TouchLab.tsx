@@ -21,12 +21,18 @@ export function TouchLabScreen() {
     console.info(`touch-lab ${text}`)
     status.set(text)
   }
+  // Where the rail and the list ended a drag (their chips are inside the cards' one VoiceOver element, so a UI test
+  // can't see them move).
+  const scrolled = signal("none")
   const pressOut = (what: string) => (e?: boolean) => console.info(`touch-lab ${what} out ${e ? "cancelled" : "lifted"}`)
 
   return (
     <Column style={{ flex: 1, backgroundColor: c.bg, paddingTop: 8 }}>
       <Text testID="touch-status" fontSize={13} color={c.ink} style={{ paddingHorizontal: 12, paddingBottom: 6 }}>
         {`status: ${status()}`}
+      </Text>
+      <Text testID="touch-scroll" fontSize={11} color={c.muted} style={{ paddingHorizontal: 12, paddingBottom: 6 }}>
+        {`scrolled: ${scrolled()}`}
       </Text>
 
       {/* 1: the chips go on past the Scroll's bottom, under Pay. */}
@@ -74,7 +80,11 @@ export function TouchLabScreen() {
         <Text fontSize={12} color={c.ink}>
           Card with a chip rail
         </Text>
-        <Scroll testID="rail" horizontal style={{ gap: 8, flexGrow: 0 }}>
+        <Scroll
+          testID="rail"
+          horizontal
+          onScrollEndDrag={(e) => scrolled.set(`rail ${e.nativeEvent.contentOffset.x > 40 ? "moved" : "still"}`)}
+          style={{ gap: 8, flexGrow: 0 }}>
           {RAIL.map((it) => (
             <Box key={it.id} style={{ width: 90, height: 36, borderRadius: 18, backgroundColor: "#E0E7FF", justifyContent: "center", alignItems: "center" }}>
               <Text fontSize={12} color={c.ink}>
@@ -105,6 +115,7 @@ export function TouchLabScreen() {
           key={(it) => it.id}
           horizontal
           gap={8}
+          onScrollEndDrag={(e) => scrolled.set(`list ${e.nativeEvent.contentOffset.x > 40 ? "moved" : "still"}`)}
           style={{ height: 36, flexGrow: 0 }}
           row={(it) => (
             <Column style={{ width: 90, height: 36, borderRadius: 18, backgroundColor: "#FEF3C7", justifyContent: "center", alignItems: "center" }}>
