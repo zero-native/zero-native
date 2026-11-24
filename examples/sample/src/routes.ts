@@ -79,6 +79,7 @@ import { TextPolishLabScreen, TextPolishLinesLabScreen, TextSpacingLabScreen } f
 import { NavRaceLabScreen, NavRaceTargetScreen } from "./NavRaceLab"
 import { TouchFixLabScreen } from "./TouchFixLab"
 import { ChecksLabScreen } from "./ChecksLab"
+import { ChecksLabScreen, ChecksSnapLabScreen } from "./ChecksLab"
 
 export const routes = defineRoutes({
   home: { path: "/", screen: HomeScreen },
@@ -222,6 +223,8 @@ export const routes = defineRoutes({
   // Checks that had no screen: motion text grouping, taps on 3D-turned views, a NativeView's testID and pointerEvents
   // (ChecksLab.tsx; UI test ChecksLabTests). Last, as above.
   checksLab: { path: "/dev/checks", screen: ChecksLabScreen, deepLink: true },
+  // A snapping Scroll under the system bars (ChecksLab.tsx e). Last, as above.
+  checksSnapLab: { path: "/dev/checks/snap", screen: ChecksSnapLabScreen, deepLink: true, safeArea: "none" },
 })
 
 // Typed navigation: nav.push("amount", { merchantId }) is checked against these routes.

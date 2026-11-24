@@ -208,9 +208,11 @@ function checksFor(port: number): Array<[string, Check]> {
       must(got.every((d, i) => d === `n${i}`), `out of order near ${got.findIndex((d, i) => d !== `n${i}`)}`)
       return "n0 … n199 in order"
     }],
-    // To 127.0.0.1, not localhost: on the iOS simulator each URLSession connection looks "localhost" up by itself, and 80
-    // lookups at once queue (the first open after ~0.8 s, the last after 2-3 s, now and then past 8 s; 2026-11-24). By
-    // address all 80 open in 0.2-0.4 s. Still one host, so it still checks that nothing caps sockets per host.
+    // To 127.0.0.1, not localhost: on the iOS simulator 80 sockets to "localhost" at once open slowly (the first upgrade
+    // reaches the server after ~0.8 s, the rest over 2-3 s, and in 2 of 3 runs one socket didn't open in 8 s; 2026-11-24).
+    // The guess is that each connection resolves the name (or tries ::1 first) by itself; nothing measured the lookup.
+    // By address all 80 open in 0.2-0.7 s. Still one host, so it still checks that nothing caps sockets per host. The
+    // next case keeps a small localhost burst, with its time; 80 to a real host name is a phone check.
     ["80 sockets to one host", async () => {
       const all = Array.from({ length: 80 }, () => track(`ws://127.0.0.1:${port}/ws`))
       await Promise.all(all.map((t) => next(t, "open", 8000)))
@@ -220,6 +222,17 @@ function checksFor(port: number): Array<[string, Check]> {
       await Promise.all(all.map((t) => next(t, "close")))
       must(got.every((m, i) => m.data === `socket ${i}`), "a socket got another's echo")
       return "80 opened at once, echoed, closed"
+    }],
+    // 20 to "localhost" at once, with the time the last open took (the slow path above; 8 s each is the limit).
+    ["20 sockets to localhost (timed)", async () => {
+      const t0 = Date.now()
+      const all = Array.from({ length: 20 }, () => track(W))
+      await Promise.all(all.map((t) => next(t, "open", 8000)))
+      const ms = Date.now() - t0
+      all.forEach((t) => t.ws.close())
+      await Promise.all(all.map((t) => next(t, "close")))
+      console.info(`ws-lab: 20 sockets to localhost opened in ${ms} ms`)
+      return `20 opened in ${ms} ms`
     }],
     // Our close on iOS: URLSession sends the close frame and ends the connection at once, without waiting for the
     // server's answer, so these three end at once with our code. Android (OkHttp) waits for the answer, up to 60 s.

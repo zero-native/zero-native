@@ -9,6 +9,9 @@
 //      type allows testID and pointerEvents: so a wrapper.)
 //   d) Reorder in a sideways List (chips of different widths) and in an inverted List with rows of mixed heights: long
 //      press, drag, drop; each onReorder is logged ("checks-lab reorder ...") and shown in the status.
+//   e) ChecksSnapLabScreen (route checksSnapLab): a snapping Scroll under the status bar and the home indicator.
+//   f) Values JS puts in fields: a multiline field JS regroups, a maxLength 4 field JS fills with 6 digits, a read-only
+//      field JS changes (what A93's fix must keep).
 import { Box, Column, List, NativeView, Pressable, Row, Scroll, Stack, Text, TextField } from "@zeronative/ui"
 import { signal, useMotion } from "@zeronative/core"
 import { c } from "./tokens"
@@ -38,6 +41,10 @@ export function ChecksLabScreen() {
   const turn = useMotion(1)
   const turnedTaps = signal(0)
   const tiltTaps = signal(0)
+  const grouped = signal("")
+  const max4 = signal("")
+  const roText = signal("read-only 0")
+  let roCount = 0
   const underTaps = signal(0)
   const viewEvents = signal(0)
   const chips = signal(["Chai", "Groceries", "Rent", "Fuel and tolls", "Gym", "Books"])
@@ -156,6 +163,71 @@ export function ChecksLabScreen() {
           )}
         />
       </ChkSection>
+
+      <ChkSection title="f) Values JS puts in fields" note="For A93's fix (how a field takes JS's value): a multiline field JS regroups (1234567 → 12,34,567), a maxLength 4 field JS fills with 6 digits, and a read-only field JS changes.">
+        <TextField
+          testID="multi-group"
+          value={grouped()}
+          onChangeText={(t) => { const d = t.replace(/\D/g, "").slice(0, 9); grouped.set(d ? Number(d).toLocaleString("en-IN") : ""); console.log(`checks-lab multi typed "${t}"`) }}
+          multiline
+          keyboardType="number-pad"
+          placeholder="Multiline, grouped by JS"
+          style={{ minHeight: 44, borderWidth: 1, borderColor: c.border, borderRadius: 10, paddingHorizontal: 10 }}
+        />
+        <TextField
+          testID="max4"
+          value={max4()}
+          onChangeText={(t) => max4.set(t)}
+          maxLength={4}
+          placeholder="maxLength 4"
+          style={{ height: 44, borderWidth: 1, borderColor: c.border, borderRadius: 10, paddingHorizontal: 10 }}
+        />
+        <TextField
+          testID="ro-js"
+          value={roText()}
+          editable={false}
+          style={{ height: 44, borderWidth: 1, borderColor: c.border, borderRadius: 10, paddingHorizontal: 10 }}
+        />
+        <Row style={{ gap: 8 }}>
+          <Pressable testID="set-values" onPress={() => { max4.set("123456"); roText.set(`read-only ${++roCount}`); say("values set") }} style={{ padding: 8, borderRadius: 6, backgroundColor: c.pillBg }}>
+            <Text fontSize={12} fontWeight={600} color={c.ink}>Set 123456 and the read-only text</Text>
+          </Pressable>
+        </Row>
+      </ChkSection>
     </Scroll>
+  )
+}
+
+// e) Snapping in a Scroll that reaches under the status bar and the home indicator (route checksSnapLab, safeArea
+// "none": the only screen where a snapping Scroll has system bars over it). Pages of 300 pt snap to the top; each
+// momentum end is shown with its offset, which should be a multiple of 300. Open with --route checksSnapLab.
+export function ChecksSnapLabScreen() {
+  const status = signal("snap: ready")
+  const PAGES = Array.from({ length: 12 }, (_, i) => i)
+  return (
+    <Stack style={{ flex: 1, backgroundColor: c.white }}>
+      <Scroll
+        testID="snap-scroll"
+        snapToInterval={300}
+        decelerationRate="fast"
+        onMomentumScrollEnd={(e) => {
+          const y = Math.round(e.nativeEvent.contentOffset.y)
+          status.set(`snap: end at ${y}${y % 300 === 0 ? " (on a page)" : " (between pages)"}`)
+          console.log(`checks-snap end at ${e.nativeEvent.contentOffset.y}`)
+        }}
+        style={{ flex: 1 }}
+      >
+        {PAGES.map((i) => (
+          <Box key={i} style={{ height: 300, backgroundColor: i % 2 === 0 ? "#DBEAFE" : "#FDE68A", justifyContent: "flex-start", padding: 8 }}>
+            <Text fontSize={16} fontWeight={700} color={c.ink}>{`Page ${i} (top at ${i * 300})`}</Text>
+          </Box>
+        ))}
+      </Scroll>
+      <Box style={{ position: "absolute", start: 16, end: 16, bottom: 120, padding: 8, borderRadius: 8, backgroundColor: c.ink }}>
+        <Text testID="snap-status" fontSize={14} fontWeight={700} color={c.white}>
+          {status()}
+        </Text>
+      </Box>
+    </Stack>
   )
 }
