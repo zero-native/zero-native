@@ -12,7 +12,8 @@
 //   e) ChecksSnapLabScreen (routes checksSnapSafeLab and checksSnapLab): a snapping Scroll with and without a safe-area
 //      inset.
 //   f) Values JS puts in fields: a multiline field JS regroups, a maxLength 4 field JS fills with 6 digits, a read-only
-//      field JS changes (what A93's fix must keep).
+//      field JS changes (what A93's fix must keep); typing 0 into a maxLength 4 field (one-line or multiline) makes JS
+//      put 123456 into it while it is focused.
 //   g) returnKeyType "next" in an inverted List and in a sideways List (Android goes by row order).
 import { Box, Column, List, NativeView, Pressable, Row, Scroll, Stack, Text, TextField } from "@zeronative/ui"
 import { signal, useMotion } from "@zeronative/core"
@@ -46,6 +47,7 @@ export function ChecksLabScreen() {
   const grouped = signal("")
   const nextFocus = signal("none")
   const max4 = signal("")
+  const max4m = signal("")
   const roText = signal("read-only 0")
   let roCount = 0
   const underTaps = signal(0)
@@ -167,7 +169,7 @@ export function ChecksLabScreen() {
         />
       </ChkSection>
 
-      <ChkSection title="f) Values JS puts in fields" note="For A93's fix (how a field takes JS's value): a multiline field JS regroups (1234567 → 12,34,567), a maxLength 4 field JS fills with 6 digits, and a read-only field JS changes.">
+      <ChkSection title="f) Values JS puts in fields" note="For A93's fix (how a field takes JS's value): a multiline field JS regroups (1234567 → 12,34,567), a maxLength 4 field JS fills with 6 digits (also while it is focused: type 0), and a read-only field JS changes.">
         <TextField
           testID="multi-group"
           value={grouped()}
@@ -180,10 +182,19 @@ export function ChecksLabScreen() {
         <TextField
           testID="max4"
           value={max4()}
-          onChangeText={(t) => max4.set(t)}
+          onChangeText={(t) => max4.set(t === "0" ? "123456" : t)}
           maxLength={4}
-          placeholder="maxLength 4"
+          placeholder="maxLength 4 (type 0: JS puts 123456)"
           style={{ height: 44, borderWidth: 1, borderColor: c.border, borderRadius: 10, paddingHorizontal: 10 }}
+        />
+        <TextField
+          testID="max4-multi"
+          value={max4m()}
+          onChangeText={(t) => max4m.set(t === "0" ? "123456" : t)}
+          maxLength={4}
+          multiline
+          placeholder="Multiline maxLength 4 (type 0: JS puts 123456)"
+          style={{ minHeight: 44, borderWidth: 1, borderColor: c.border, borderRadius: 10, paddingHorizontal: 10 }}
         />
         <TextField
           testID="ro-js"
@@ -192,8 +203,8 @@ export function ChecksLabScreen() {
           style={{ height: 44, borderWidth: 1, borderColor: c.border, borderRadius: 10, paddingHorizontal: 10 }}
         />
         <Row style={{ gap: 8 }}>
-          <Pressable testID="set-values" onPress={() => { max4.set("123456"); roText.set(`read-only ${++roCount}`); say("values set") }} style={{ padding: 8, borderRadius: 6, backgroundColor: c.pillBg }}>
-            <Text fontSize={12} fontWeight={600} color={c.ink}>Set 123456 and the read-only text</Text>
+          <Pressable testID="set-values" onPress={() => { max4.set("654321"); roText.set(`read-only ${++roCount}`); say("values set") }} style={{ padding: 8, borderRadius: 6, backgroundColor: c.pillBg }}>
+            <Text fontSize={12} fontWeight={600} color={c.ink}>Set 654321 and the read-only text</Text>
           </Pressable>
         </Row>
       </ChkSection>

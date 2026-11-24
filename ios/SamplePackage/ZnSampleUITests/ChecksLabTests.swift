@@ -80,16 +80,23 @@ final class ChecksLabTests: ZnUITestCase {
         let r1 = rows.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 1)).withOffset(CGVector(dx: 0, dy: -28))
         // Picked up and let go where it was (a small move and back): no reorder, the row still shows.
         r1.press(forDuration: 0.8, thenDragTo: r1.withOffset(CGVector(dx: 0, dy: -10)), withVelocity: .slow, thenHoldForDuration: 0.6)
-        Thread.sleep(forTimeInterval: 1.2)
+        landed("Row 1 (44)")
         XCTAssertEqual(id("rows-order").label, "rows: r1, r2, r3, r4, r5, r6")
         assertRowShows("Row 1 (44)")
         // Moved past two rows: it lands between Row 3 and Row 4 and shows there.
         r1.press(forDuration: 0.8, thenDragTo: r1.withOffset(CGVector(dx: 0, dy: -190)), withVelocity: .slow, thenHoldForDuration: 0.4)
         status("reorder rows 0 → 2")
-        Thread.sleep(forTimeInterval: 1.2)
+        landed("Row 1 (44)")
         let row1 = text("Row 1 (44)").frame, row3 = text("Row 3 (60)").frame, row4 = text("Row 4 (120)").frame
         XCTAssertTrue(row4.midY < row1.midY && row1.midY < row3.midY, "Row 1 at \(row1), not between Row 4 \(row4) and Row 3 \(row3)")
         assertRowShows("Row 1 (44)")
+    }
+
+    /// The dropped row [label] has landed: its cell, hidden from VoiceOver too while the drag preview flies (drop), is
+    /// back in the accessibility tree (it isn't if the drop's end never comes), and the preview has gone with it.
+    private func landed(_ label: String, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertTrue(text(label).waitForExistence(timeout: 3), "\(label): its cell is still hidden", file: file, line: line)
+        Thread.sleep(forTimeInterval: 0.3)
     }
 
     /// The row whose label is [label] is drawn: a pixel near the List's right end, on the label's line, is the row's
@@ -112,16 +119,25 @@ final class ChecksLabTests: ZnUITestCase {
     }
 
     /// The f) fields: seven keys in one burst into a multiline field JS regroups all count (A93: a key typed during
-    /// JS's regroup was put before the last digit, 12,35,674); JS's 6 digits fill a maxLength 4 field (JS's value
-    /// isn't cut, as before); a read-only field takes JS's text.
+    /// JS's regroup was put before the last digit, 12,35,674); JS's 6 digits go whole into a focused maxLength 4 field,
+    /// one-line and multiline (they go in through UITextInput's replace then, which must not ask the field's
+    /// maxLength), and into one that isn't focused (`text =`); a read-only field takes JS's text.
     func testValuesJSPutsInFields() {
         let multi = reveal(id("multi-group"), hittable: false)
         multi.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         multi.typeText("1234567")
         waitValue(multi, "12,34,567", timeout: 3)
+        // Typing 0 makes JS put 123456 into the field while it has the focus.
+        for f in ["max4", "max4-multi"] {
+            let field = reveal(id(f), hittable: false)
+            field.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            field.typeText("0")
+            waitValue(field, "123456", timeout: 3)
+        }
+        // max4 isn't focused now (max4-multi is).
         reveal(id("set-values")).tap()
         status("values set")
-        waitValue(id("max4"), "123456")
+        waitValue(id("max4"), "654321")
         waitValue(id("ro-js"), "read-only 1")
     }
 
