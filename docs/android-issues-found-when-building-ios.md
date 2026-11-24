@@ -126,6 +126,8 @@ Each entry says:
 | A110 | 2026-11-24 | TextField (Android) | Check: returnKeyType next in an inverted List (iOS goes down the screen; Android likely by row order) | check |
 | A111 | 2026-11-24 | Layout and text (Android) | Check: round 6's lab cases (layout 50a-j and 51, text spacing, touch fixes, fade list) | check |
 | A112 | 2026-11-24 | Shared (compiler) | <NativeView> allows testID and pointerEvents in its type, but the compiler rejects them | open, Pavan to decide (rec: pass them through) |
+| A113 | 2026-11-25 | NativeView (Android) | <NativeView pointerEvents="none"> probably still takes touches on Android | check (likely) |
+| A114 | 2026-11-25 | Layout and touch (Android) | Check: round 7's cases (layout 52, modal drag-down is iOS only, checks lab f/g, 3D turned field) | check |
 
 ---
 
@@ -1136,3 +1138,20 @@ Each entry says:
 - **Problem:** `compiler/src/compile.ts` ~2278 with `packages/ui/src/index.ts` ~468: the type allows them, the build
   fails. The iOS runtime already handles both. Both platforms.
 - **Check:** add `testID="x"` to a NativeView and run `bun run sample:js`.
+
+## A113. <NativeView pointerEvents="none"> probably still takes touches on Android (from iOS work, round 7)
+- **Status:** check (likely). Found on the Mac 2026-11-25.
+- **Problem:** `ZnNativeViews.kt` ~49-62 with `ZnRenderer.kt` ~155-176: pointerEvents "none" only sets LocalTouchOff and
+  skips znBlockTouches; the plugin's AndroidView is a real View that never reads LocalTouchOff. iOS turns
+  isUserInteractionEnabled off. The compiler now passes testID and pointerEvents on NativeView (A112, fixed in the
+  compiler 2026-11-25); testID on Android sits on the Box around the plugin view (`ZnTemplate.kt` ~774).
+- **Check:** `zn://sample/dev/checks` c), last row: tap the middle of the NativeView over the green "under-direct"
+  Pressable: "under direct 1", not "direct view none got an event". With uiautomator, "native-direct-id" is found.
+
+## A114. Check: round 7's cases (layout 52, modal drag-down is iOS only, checks lab f/g, 3D turned field) (from iOS work, round 7)
+- **Status:** check. Found on the Mac 2026-11-25.
+- **Check:** `/dev/layout`: 124/124 (case 52: a wrap Row of fixed height 20 gives center at -10 and flex-end at -20 in a
+  60 share). `/dev/checks` g): Next from n1 goes n2, n3, n4, then s1 to s4. f): type 0 into a maxLength 4 field: it shows
+  123456 while focused; type 1234567 fast into the multiline field: 12,34,567. In checksLab, a tap just right of the
+  turned card's drawn edge presses nothing and doesn't focus "turned-field" (iOS's ChecksLabTests.testTapsOn3DTurnedViews
+  is flaky there). The modal drag-down is iOS only by design (Android has system back).
