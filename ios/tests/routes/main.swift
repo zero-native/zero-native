@@ -44,8 +44,8 @@ func link(_ path: String, _ routes: [ZnRoute]) -> String? {
 test("sampleOptions") {
     guard let routes = try ZnRoutes.read(Data(contentsOf: URL(fileURLWithPath: args[1]))) else { return fail("no routes") }
     yes(routes.count > 10, "the sample has its routes")
-    eq(routes.filter(\.secure).map(\.name), ["secureLab", "secureNative", "sharedLabSecure"], "secure routes")
-    eq(routes.filter(\.transparent).map(\.name), ["photoViewer", "seeThroughLab", "seeThroughSlide", "sharedLabSeeThrough", "ivInvisibleLayer"], "transparent routes")
+    eq(routes.filter(\.secure).map(\.name), ["secureLab", "secureNative", "sharedLabSecure", "modalDragSecure"], "secure routes")
+    eq(routes.filter(\.transparent).map(\.name), ["photoViewer", "seeThroughLab", "seeThroughSlide", "sharedLabSeeThrough", "ivInvisibleLayer", "modalDragSeeThrough"], "transparent routes")
     eq(routes.filter(\.accessibilityHidesBelow).map(\.name), ["photoViewer"], "routes that hide the screens below")
     // The other options of the transparent one still read.
     guard let viewer = routes.first(where: { $0.name == "photoViewer" }) else { return fail("no photoViewer") }
