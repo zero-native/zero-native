@@ -14,8 +14,8 @@
 //      lays the next row out for the focus search).
 //   9. A multiline field with maxHeight 112 in a Modal (ZeroBill's review box).
 //  10. A multiline field with maxHeight 70 in a List's rows: each row is 70 + its padding tall, not its whole text.
-//  11. (on the §5 screen) letterSpacing keeps a label centred in its pill, and a spaced paragraph centred per line.
-//  12. (on the §5 screen) lineHeight: each line after the first adds lineHeight, loose (16 / 24) and tight (32 / 30).
+//  11. (own screen, route textSpacingLab) letterSpacing keeps a label centred in its pill, and a spaced paragraph centred per line.
+//  12. (own screen, route textSpacingLab) lineHeight: each line after the first adds lineHeight, loose (16 / 24) and tight (32 / 30).
 //      Tight is a known iOS gap: SwiftUI keeps the font's own line height there (iOS FAILs it; Android should pass).
 //
 //   adb shell am start -a android.intent.action.VIEW -d "zn://sample/dev/text-polish" dev.zeronative.sample
@@ -281,8 +281,7 @@ export function TextPolishLabScreen() {
 }
 
 // §5 on its own screen (route textPolishLinesLab): numberOfLines={0} is no limit. Android throws here until
-// ZnTemplate.kt maps 0 to no limit (BasicText takes maxLines of 1 or more). §11 and §12 (round 6) are here too, so
-// the main screen scrolls as it did (testReturnKeyNextInList failed with them at its end).
+// ZnTemplate.kt maps 0 to no limit (BasicText takes maxLines of 1 or more).
 export function TextPolishLinesLabScreen() {
   return (
     <Column style={{ flex: 1, backgroundColor: c.bg, padding: 16, gap: 14 }}>
@@ -299,40 +298,53 @@ export function TextPolishLinesLabScreen() {
       <Text testID="tp-lines0" numberOfLines={0} fontSize={14} color={c.ink} style={{ width: 200, backgroundColor: "#E0E7FF" }}>
         numberOfLines zero means no limit, so this sentence wraps over several lines.
       </Text>
-      <TpTitle text="11. letterSpacing stays centred" />
-      <Row style={{ gap: 8, alignItems: "center" }}>
-        <Row testID="tp-pill" justifyContent="center" style={{ width: 120, paddingVertical: 4, borderRadius: 12, backgroundColor: "#FDE68A" }}>
-          <Text testID="tp-pill-text" onLayout={tpWidth("pill")} fontSize={14} fontWeight={700} letterSpacing={6} color={c.ink}>
+    </Column>
+  )
+}
+
+// §11 and §12 on their own screen (route textSpacingLab), in a Scroll so a short phone doesn't squeeze the last Texts
+// (a squeezed Text reports a clipped height), and with no numberOfLines 0, so Android can open it now. Not on the main
+// screen: at its end they changed its scroll range and testReturnKeyNextInList failed.
+//   adb shell am start -a android.intent.action.VIEW -d "zn://sample/dev/text-polish/spacing" dev.zeronative.sample
+export function TextSpacingLabScreen() {
+  return (
+    <Scroll style={{ flex: 1, backgroundColor: c.bg }}>
+      <Column style={{ padding: 16, gap: 14 }}>
+        <TpTitle text="11. letterSpacing stays centred" />
+        <Row style={{ gap: 8, alignItems: "center" }}>
+          <Row testID="tp-pill" justifyContent="center" style={{ width: 120, paddingVertical: 4, borderRadius: 12, backgroundColor: "#FDE68A" }}>
+            <Text testID="tp-pill-text" onLayout={tpWidth("pill")} fontSize={14} fontWeight={700} letterSpacing={6} color={c.ink}>
+              OFFER
+            </Text>
+          </Row>
+          <Text onLayout={tpWidth("pill-plain")} fontSize={14} fontWeight={700} color={c.ink} style={{ backgroundColor: "#E0E7FF" }}>
             OFFER
           </Text>
         </Row>
-        <Text onLayout={tpWidth("pill-plain")} fontSize={14} fontWeight={700} color={c.ink} style={{ backgroundColor: "#E0E7FF" }}>
-          OFFER
-        </Text>
-      </Row>
-      <Stack style={{ width: 220, backgroundColor: c.white }}>
-        <Text testID="tp-spaced-centre" fontSize={15} letterSpacing={4} textAlign="center" color={c.ink} style={{ width: 220 }}>
-          Spaced words wrap onto a second line here
-        </Text>
-        <Column style={{ position: "absolute", top: 0, bottom: 0, start: 109.5, width: 1, backgroundColor: "#EF4444" }} />
-      </Stack>
+        <Stack style={{ width: 220, backgroundColor: c.white }}>
+          <Text testID="tp-spaced-centre" fontSize={15} letterSpacing={4} textAlign="center" color={c.ink} style={{ width: 220 }}>
+            Spaced words wrap onto a second line here
+          </Text>
+          <Column style={{ position: "absolute", top: 0, bottom: 0, start: 109.5, width: 1, backgroundColor: "#EF4444" }} />
+        </Stack>
 
-      <TpTitle text="12. lineHeight: each line after the first adds lineHeight (tight: an iOS gap)" />
-      <Text testID="tp-lh-tight-1" onLayout={tpHeight("tight-1")} fontSize={32} lineHeight={30} fontWeight={700} color={c.ink} style={{ backgroundColor: "#FEF3C7" }}>
-        Tight
-      </Text>
-      <Text testID="tp-lh-tight-2" onLayout={tpHeight("tight-2")} fontSize={32} lineHeight={30} fontWeight={700} color={c.ink} style={{ backgroundColor: "#FEF3C7" }}>
-        {"Tight\nheading"}
-      </Text>
-      <Text testID="tp-lh-loose-1" onLayout={tpHeight("loose-1")} fontSize={16} lineHeight={24} color={c.ink} style={{ backgroundColor: "#E0E7FF" }}>
-        Loose
-      </Text>
-      <Text testID="tp-lh-loose-2" onLayout={tpHeight("loose-2")} fontSize={16} lineHeight={24} color={c.ink} style={{ backgroundColor: "#E0E7FF" }}>
-        {"Loose\nlines"}
-      </Text>
-      <Text testID="tp-lh-summary" fontSize={12} color={c.muted}>
-        {lhSummary()}
-      </Text>
-    </Column>
+        <TpTitle text="12. lineHeight: each line after the first adds lineHeight (tight: an iOS gap)" />
+        <Text testID="tp-lh-tight-1" onLayout={tpHeight("tight-1")} fontSize={32} lineHeight={30} fontWeight={700} color={c.ink} style={{ backgroundColor: "#FEF3C7" }}>
+          Tight
+        </Text>
+        <Text testID="tp-lh-tight-2" onLayout={tpHeight("tight-2")} fontSize={32} lineHeight={30} fontWeight={700} color={c.ink} style={{ backgroundColor: "#FEF3C7" }}>
+          {"Tight\nheading"}
+        </Text>
+        <Text testID="tp-lh-loose-1" onLayout={tpHeight("loose-1")} fontSize={16} lineHeight={24} color={c.ink} style={{ backgroundColor: "#E0E7FF" }}>
+          Loose
+        </Text>
+        <Text testID="tp-lh-loose-2" onLayout={tpHeight("loose-2")} fontSize={16} lineHeight={24} color={c.ink} style={{ backgroundColor: "#E0E7FF" }}>
+          {"Loose\nlines"}
+        </Text>
+        <Text testID="tp-lh-summary" fontSize={12} color={c.muted}>
+          {lhSummary()}
+        </Text>
+      </Column>
+    </Scroll>
   )
 }

@@ -12,6 +12,8 @@
 // 5. An enter / exit fade fades the element as one picture too (round 6, 2026-11-24).
 // 6. A picture that isn't in memory fades in over 150 ms, as Coil's crossfade; one in memory shows at once.
 // 7. The same in a List's recycled rows: once its two pictures are in memory, rows scrolled in again don't fade.
+// 8. (own screen, route paintFadeListLab) 100 List rows with an enter fade (a card with text, so each fades as one
+//    picture), to measure scrolling with the group: ZN_MOTION_PERF=1 logs the main thread's time per frame.
 import { Box, Column, Image, List, Pressable, Row, Scroll, Stack, Text, TextField } from "@zeronative/ui"
 import { signal } from "@zeronative/core"
 import { c } from "./tokens"
@@ -149,5 +151,28 @@ export function PaintLabScreen() {
         />
       </Column>
     </Scroll>
+  )
+}
+
+const fadeRows = Array.from({ length: 100 }, (_, i) => ({ id: `f${i}`, n: i + 1 }))
+
+// §8: a full screen List whose rows fade in (enter opacity), the common pattern the enter / exit group is on for good.
+export function PaintFadeListLabScreen() {
+  return (
+    <List
+      testID="paint-fade-list"
+      data={fadeRows}
+      key={(r) => r.id}
+      style={{ flex: 1, backgroundColor: c.bg }}
+      row={(r) => (
+        <Row enter={{ opacity: 0, duration: 200 }} gap={10} alignItems="center" style={{ marginHorizontal: 12, marginVertical: 4, padding: 12, borderRadius: 12, backgroundColor: c.white, borderWidth: 1, borderColor: "#E5E7EB" }}>
+          <Box style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: r.n % 2 === 0 ? A : B }} />
+          <Column style={{ flex: 1 }}>
+            <Text fontSize={15} fontWeight={600} color={c.ink}>{`Row ${r.n}`}</Text>
+            <Text fontSize={13} color={c.muted}>A card with text that fades in as one picture</Text>
+          </Column>
+        </Row>
+      )}
+    />
   )
 }

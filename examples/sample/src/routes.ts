@@ -74,8 +74,8 @@ import { MotionBindingsLabScreen } from "./MotionBindingsLab"
 import { ElementValuesLabScreen } from "./ElementValuesLab"
 import { ListsTwoLabScreen } from "./ListsTwoLab"
 import { NavStartLabScreen, SharedLabDetailScreen, SharedLabScreen, SharedLabSeeThroughScreen } from "./SharedLab"
-import { PaintLabScreen } from "./PaintLab"
-import { TextPolishLabScreen, TextPolishLinesLabScreen } from "./TextPolishLab"
+import { PaintLabScreen, PaintFadeListLabScreen } from "./PaintLab"
+import { TextPolishLabScreen, TextPolishLinesLabScreen, TextSpacingLabScreen } from "./TextPolishLab"
 import { NavRaceLabScreen, NavRaceTargetScreen } from "./NavRaceLab"
 import { TouchFixLabScreen } from "./TouchFixLab"
 
@@ -214,6 +214,10 @@ export const routes = defineRoutes({
   // A Switch or Checkbox inside a Pressable, a disabled button in a card, a long press in a Scroll, the ripple timings
   // (TouchFixLab.tsx). Last, as above.
   touchFixLab: { path: "/dev/touch/fixes", screen: TouchFixLabScreen, deepLink: true },
+  // letterSpacing centred and lineHeight (TextPolishLab.tsx §11 and §12), in a Scroll Android can open. Last, as above.
+  textSpacingLab: { path: "/dev/text-polish/spacing", screen: TextSpacingLabScreen, deepLink: true },
+  // 100 List rows with an enter fade (PaintLab.tsx §8), to measure scrolling them. Last, as above.
+  paintFadeListLab: { path: "/dev/paint/fade-list", screen: PaintFadeListLabScreen, deepLink: true },
 })
 
 // Typed navigation: nav.push("amount", { merchantId }) is checked against these routes.
