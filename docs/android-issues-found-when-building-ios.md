@@ -109,6 +109,12 @@ Each entry says:
 | A93 | 2026-11-24 | TextField (both) | Check: typing fast into a field that onChangeText reformats loses a key on iOS | check |
 | A94 | 2026-11-24 | zn dev (Android) | zn dev on Android can only use adb reverse | open (feature gap) |
 | A95 | 2026-11-24 | zn dev (Android) | zn dev's HELLO from Android has no `os`, `bytecode` or `app` | open |
+| A96 | 2026-11-24 | Plugins (Android) | ZnPlugins.HOST_API's comment says it equals kHostApiVersion; they now differ on purpose | open (comment only) |
+| A97 | 2026-11-24 | OTA (Android) | Android store builds made after the motion gate report hostApi 10 | check (information) |
+| A98 | 2026-11-24 | image-viewer (shared) | Check: the TSX image viewer on Android after the iOS fixes (window width, side insets) | check |
+| A99 | 2026-11-24 | image-viewer (both) | The image viewer's next / previous labels are never used: TalkBack has no next / previous actions | open |
+| A100 | 2026-11-24 | Routes (both) | Screens under a see-through screen stay in the TalkBack tree | open, Pavan to decide |
+| A101 | 2026-11-24 | image-viewer (Android) | The image viewer's invisible ✕ takes taps while the viewer opens | check |
 
 ---
 
@@ -987,3 +993,42 @@ Each entry says:
 - **Problem:** `ZnDev.kt` HELLO sends only `device` and `hash`, so the server can't warn about a Hermes bytecode mismatch
   or a phone running another app. iOS sends `"os":"ios"`, `bytecode` and `app` (zn-bundle.json's app).
 - **Fix:** add `"os":"android"`, `"bytecode"` and `"app"` to HELLO.
+
+## A96. ZnPlugins.HOST_API's comment says it equals kHostApiVersion; they now differ on purpose (from iOS work, round 5)
+- **Status:** open (comment only). Found on the Mac 2026-11-24.
+- **Problem:** `ZnPlugins.kt` ~73-76 says HOST_API is "the same as kHostApiVersion in core/include/zn/engine.h". Since the
+  motion gate kHostApiVersion is 10, a native-only step (`NATIVE_ONLY_HOST_API` in packages/core/src/host-api.ts), while
+  HOST_API rightly stays 9: it is the JS contract number (packages/core/test/host-api.test.ts checks it).
+- **Fix:** reword the comment: "the JS host API (HOST_API_VERSION), kHostApiVersion less its native-only steps".
+
+## A97. Android store builds made after the motion gate report hostApi 10 (from iOS work, round 5)
+- **Status:** check (information, no code change). Found on the Mac 2026-11-24.
+- **Why:** `jni_bridge.cpp` ~155 reads the shared `kHostApiVersion`, so a rebuilt Android app says 10 in its OTA check,
+  and the server's familyOf puts new Android store builds in a new family. Bundles still need 9, so older apps keep
+  getting them.
+- **Check:** an Android build's OTA check against server/src/local.ts: `capabilities.hostApi` is 10, and a bundle built
+  for 9 is still offered to it.
+
+## A98. Check: the TSX image viewer on Android after the iOS fixes (window width, side insets) (from iOS work, round 5)
+- **Status:** check. Found on the Mac 2026-11-24.
+- **Why:** `plugins/image-viewer/src/ImageViewerScreen.tsx` now follows the window width (the pages read it once before)
+  and pads the bar by `env.insets.start` / `end`. Shared JS, only run on iOS.
+- **Check:** open the viewer on photo 2, turn the phone, page, and check the ✕ clears the side insets in landscape.
+
+## A99. The image viewer's next / previous labels are never used: TalkBack has no next / previous actions (from iOS work, round 5)
+- **Status:** open (both platforms; Pavan's call: an `accessibilityActions` core API after release). Found on the Mac
+  2026-11-24.
+- **Problem:** `ImageViewerScreen.tsx` accepts `nextLabel` / `previousLabel` but nothing reads them.
+- **Check:** TalkBack on the viewer: the actions menu has no next / previous.
+
+## A100. Screens under a see-through screen stay in the TalkBack tree (from iOS work, round 5)
+- **Status:** open, Pavan to decide (rec: a route option, on by default for the viewer). Found on the Mac 2026-11-24.
+- **Problem:** `ZnNavHost.kt` ~382-391 (ZnSeeThroughScene) leaves the screens below reachable. iOS has the same gap.
+- **Check:** TalkBack, open the TSX viewer and swipe through: the lab's buttons are reached.
+
+## A101. The image viewer's invisible ✕ takes taps while the viewer opens (from iOS work, round 5)
+- **Status:** check. Found on the Mac 2026-11-24.
+- **Why:** on Android an absolute layer takes taps at any alpha, so a tap in the first 0.4 s can close a viewer the user
+  can't see yet. iOS answers only once it shows (UIKit skips alpha below 0.01). A fix for both may be `pointerEvents`
+  "none" on the bar until it shows.
+- **Check:** tap the top-left corner right after tapping a thumbnail.
