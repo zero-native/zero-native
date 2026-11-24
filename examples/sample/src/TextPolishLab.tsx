@@ -180,7 +180,7 @@ export function TextPolishLabScreen() {
         </Pressable>
 
         <TpTitle text="7. Chat composer (maxHeight 120)" />
-        <Row style={{ alignItems: "flex-end", paddingHorizontal: 10, paddingVertical: 8, backgroundColor: c.white, borderRadius: 8 }}>
+        <Row testID="tp-chat-row" style={{ alignItems: "flex-end", paddingHorizontal: 10, paddingVertical: 8, backgroundColor: c.white, borderRadius: 8 }}>
           <TextField
             testID="tp-chat"
             value={chat()}

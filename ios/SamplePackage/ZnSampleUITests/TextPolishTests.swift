@@ -114,12 +114,13 @@ final class TextPolishTests: ZnUITestCase {
         eventually("the composer has \"g\"") { (chat.value as? String)?.hasSuffix("g") == true }
         XCTAssertLessThanOrEqual(chat.frame.height, 98.5, "the composer's text view is \(chat.frame.height) pt tall")
         XCTAssertGreaterThan(chat.frame.height, 80, "the composer didn't grow (\(chat.frame.height) pt)")
-        // The composer is 120 pt (its cap) and Send stays at the bottom of the Row (alignItems flex-end): Send's bottom
-        // is 120 pt below the composer's top (its text view's top less 11 pt padding). From the top: a scrolling text
-        // view reads a few points short at the bottom to XCUITest (93.7 for 98, 2026-11-24; the screenshot shows 98).
+        // The composer stops at 120 pt (its cap), so its Row is 120 + 2 × 8 pt, and Send stays at the Row's bottom
+        // (alignItems flex-end). Read from the Row: a scrolling text view's frame reads a few points off to XCUITest
+        // (93.7 or 98 tall, 2026-11-24; the screenshot shows 98).
         RunLoop.current.run(until: Date().addingTimeInterval(1))
-        let send = id("tp-chat-send")
-        XCTAssertEqual(send.frame.maxY, chat.frame.minY - 11 + 120, accuracy: 1.5, "Send isn't at the composer's bottom (chat \(chat.frame), send \(send.frame))")
+        let rowBox = id("tp-chat-row"), send = id("tp-chat-send")
+        XCTAssertEqual(rowBox.frame.height, 136, accuracy: 1.5, "the composer's Row is \(rowBox.frame.height) pt tall")
+        XCTAssertEqual(send.frame.maxY, rowBox.frame.maxY - 8, accuracy: 1.5, "Send isn't at the Row's bottom (row \(rowBox.frame), send \(send.frame))")
 
         let notes = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == %@", "tp-row-note"))
         reveal(id("tp-under-list-notes"), hittable: false)
