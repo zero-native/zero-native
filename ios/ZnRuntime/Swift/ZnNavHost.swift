@@ -11,6 +11,13 @@
 // swipe is our own pan gesture driving the pop (backPan, ZnPopAnimator): UIKit's built-in one often never began in our
 // screens, whose left edge is mostly Pressables (a drag there became a tap). The SwiftUI variant (NavigationStack,
 // ZN_IOS_NAV=swiftui) stays for comparison until the device checks are done.
+//
+// Drag down to close (2026-11-24, iPhone check): a "modal" route (it came up from the bottom) follows a finger pulling
+// it down, as iOS's own sheets and page modals; Android has its system back for it. A downward pan anywhere on it
+// starts the drag, except over a scroll view that can still scroll that way (it scrolls, and hands the pull over once
+// it reaches its top, in the same drag: ZnModalDrag) or a zn gesture that takes the touch (ZnGestureHub). Let go past
+// a third of the screen or flicked down, it closes as a swipe back does (a UIKit pop, FORCED_BACK to JS); else it
+// springs back. A screen that wants Back asks JS and doesn't move. A see-through modal moves inside its box.
 import SwiftUI
 import UIKit
 
@@ -172,7 +179,7 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
     private var interaction: UIPercentDrivenInteractiveTransition?
     /// The swipe's shared-element flights (the debug log only).
     private weak var swipeFlight: ZnSharedFlight?
-    /// The swipe on a see-through screen moves it alone, inside its box (no UIKit pop).
+    /// The swipe (or the drag down) on a see-through screen moves it alone, inside its box (no UIKit pop).
     private var dragging: ZnSeeThroughBox?
     private let edge: CGFloat = 30
     /// The boxes last given to setViewControllers. During a slide UIKit queues the change and `viewControllers` still
@@ -195,6 +202,21 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
     private var edgeTouch = false
     /// backPan's name: the gesture hub (ZnGestureHub.swift) leaves it to claimsBackEdge instead of making it wait.
     static let backPanName = "zn.backPan"
+    /// The drag down that closes a "modal" route (the header). The gesture hub makes it wait for a zn gesture under
+    /// the finger that may take the touch, as the scrolls around one do.
+    private lazy var dismissPan = UIPanGestureRecognizer(target: self, action: #selector(dismissPanned(_:)))
+    static let dismissPanName = "zn.dismissPan"
+    /// The drag's transition while the finger moves an opaque modal (a UIKit pop it drives).
+    private var modalDrag: ZnModalDrag?
+    /// The drag on a screen that wants Back: JS heard BACK when it began; nothing moves.
+    private var dismissToJS = false
+    /// The scroll views under the touch dismissPan got, innermost first.
+    private var touchScrolls: [UIScrollView] = []
+    /// A scroll view handing its pull over (it reached its top while the finger pulled down), and the finger's
+    /// translation then: the drag counts from there.
+    private var handoff: (scroll: UIScrollView, from: CGFloat)?
+    /// Scroll views whose pans we follow for a hand-over.
+    private let followed = NSHashTable<UIScrollView>.weakObjects()
 
     init(app: ZnApp) {
         self.app = app
@@ -214,6 +236,10 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
         backPan.name = Self.backPanName
         backPan.maximumNumberOfTouches = 1
         view.addGestureRecognizer(backPan)
+        dismissPan.delegate = self
+        dismissPan.name = Self.dismissPanName
+        dismissPan.maximumNumberOfTouches = 1
+        view.addGestureRecognizer(dismissPan)
         // Light / dark changes (the phone's setting, or Control Center): JS's colorScheme() follows.
         registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (self: ZnNavController, _: UITraitCollection) in
             ZnSystemEvents.shared.colorSchemeChanged(self.traitCollection.userInterfaceStyle)
@@ -364,6 +390,7 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
     }
 
     func navigationController(_ nav: UINavigationController, didShow vc: UIViewController, animated: Bool) {
+        setNeedsStatusBarAppearanceUpdate()  // a cancelled drag or swipe: the screen that stays says light or dark again
         // The entries native shows, so a log can be checked against JS's stack ("nav: ... → stack").
         print("zn t=\(ZnDebug.ms()) uikit: didShow \(Self.entries(viewControllers))\(viewControllers == lastSet ? "" : ", set \(Self.entries(lastSet))")")
         applyPending()
@@ -416,6 +443,7 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
 
     func gestureRecognizer(_ g: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         if g === backPan { edgeTouch = touch.location(in: view).x <= edge }
+        if g === dismissPan { touchScrolls = scrolls(under: touch) }
         return true
     }
 
@@ -424,12 +452,14 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
     /// the swipe has failed (a drag left or up and down, a screen with nothing to go back to, a gesture holding the
     /// edge). Before 2026-11-24 the rail scrolled instead and Back worked only between the rails.
     func gestureRecognizer(_ g: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
+        if g === dismissPan { return dismissFirst(other) }
         guard g === backPan, edgeTouch, let sv = other.view as? UIScrollView, other === sv.panGestureRecognizer,
               let top = topViewController?.view, sv.isDescendant(of: top) else { return false }
         return sv.contentSize.width > sv.bounds.width + 0.5 || sv.alwaysBounceHorizontal
     }
 
     func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
+        if g === dismissPan { return dismissShouldBegin() }
         guard g === backPan, transitionCoordinator == nil, dragging == nil, let top = app.stack.last else { return false }
         // A see-through screen over another in its box moves alone (its box isn't popped).
         let box = (topViewController as? ZnSeeThroughBox).flatMap { $0.canDragTop && $0.entries.last == top ? $0 : nil }
@@ -498,21 +528,28 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
 
     /// The back swipe on a see-through screen: it follows the finger over the still screens below; let go past half
     /// (or flung), it leaves and JS hears FORCED_BACK, as after a pop.
-    private func dragSeeThrough(_ box: ZnSeeThroughBox, _ g: UIPanGestureRecognizer, _ progress: CGFloat) {
+    /// [down]: the drag down on a see-through "modal" screen (its own thresholds, ZnModalDrag.finishes).
+    private func dragSeeThrough(_ box: ZnSeeThroughBox, _ g: UIPanGestureRecognizer, _ progress: CGFloat, down: Bool = false) {
         switch g.state {
         case .began, .changed:
             box.drag(progress)
         case .ended, .cancelled, .failed:
             dragging = nil
-            let finish = g.state == .ended && (progress > 0.5 || g.velocity(in: view).x > 600)
-            print("zn t=\(ZnDebug.ms()) nav: swipe back \(finish ? "finished" : "cancelled") (see-through)")
-            box.endDrag(finish: finish) { [weak self] in
-                guard let self else { return }
-                let shown = self.viewControllers.flatMap { ($0 as? ZnSeeThroughBox)?.entries ?? [] }.dropLast()
-                if !shown.isEmpty { self.app.nativeChanged(to: Array(shown)) }
-            }
+            let speed = down ? g.velocity(in: view).y : g.velocity(in: view).x
+            let finish = g.state == .ended && (down ? ZnModalDrag.finishes(progress, speed: speed) : progress > 0.5 || speed > 600)
+            print("zn t=\(ZnDebug.ms()) nav: \(down ? "drag down" : "swipe back") \(finish ? "finished" : "cancelled") (see-through)")
+            endSeeThrough(box, finish: finish, speed: speed)
         default:
             break
+        }
+    }
+
+    /// The see-through screen's drag let go: off screen (JS hears FORCED_BACK) or back in place.
+    private func endSeeThrough(_ box: ZnSeeThroughBox, finish: Bool, speed: CGFloat) {
+        box.endDrag(finish: finish, speed: speed) { [weak self] in
+            guard let self else { return }
+            let shown = self.viewControllers.flatMap { ($0 as? ZnSeeThroughBox)?.entries ?? [] }.dropLast()
+            if !shown.isEmpty { self.app.nativeChanged(to: Array(shown)) }
         }
     }
 
@@ -522,10 +559,14 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
     func navigationController(_ nav: UINavigationController, animationControllerFor operation: UINavigationController.Operation,
                               from: UIViewController, to: UIViewController) -> UIViewControllerAnimatedTransitioning? {
         let opening = operation == .push
-        let interactive = interaction != nil && !opening
+        let interactive = (interaction != nil || modalDrag != nil) && !opening
         let transition = entry(of: opening ? to : from).flatMap { app.route(of: $0)?.transition } ?? .push
         let flight = interactive || transition != .none ? sharedFlight(from: from, to: to, opening: opening) : nil
         swipeFlight = interactive ? flight : nil
+        if let drag = modalDrag, !opening {
+            drag.flight = flight
+            return drag
+        }
         if interactive { return ZnPopAnimator(flight: flight) }
         if transition != .push { return ZnTransitionAnimator(transition: transition, opening: opening, flight: flight) }
         return flight.map { ZnSlideAnimator(opening: opening, flight: $0) }
@@ -533,7 +574,162 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
 
     func navigationController(_ nav: UINavigationController,
                               interactionControllerFor animator: UIViewControllerAnimatedTransitioning) -> UIViewControllerInteractiveTransitioning? {
-        animator is ZnPopAnimator ? interaction : nil
+        if let drag = animator as? ZnModalDrag { return drag }
+        return animator is ZnPopAnimator ? interaction : nil
+    }
+
+    // MARK: Drag down to close a "modal" route
+
+    /// What the drag down would move now: the top screen when its route is "modal", it is shown and nothing else
+    /// moves. [box]: the see-through box it is in (it moves alone there); nil: its own box, by a UIKit pop.
+    private func modalTop() -> (entry: UInt32, box: ZnSeeThroughBox?)? {
+        guard transitionCoordinator == nil, dragging == nil, interaction == nil, modalDrag == nil, handoff == nil,
+              !dismissToJS, !backToJS, !failureShown, viewControllers == lastSet, let top = app.stack.last,
+              app.route(of: top)?.transition == .modal, let shown = topViewController as? ZnSeeThroughBox,
+              shown.entries.last == top else { return nil }
+        if shown.layers.count > 1 { return shown.canDragTop ? (top, shown) : nil }
+        return viewControllers.count > 1 ? (top, nil) : nil
+    }
+
+    /// The scroll views from the touched view up to the top screen's view, innermost first. A modal screen's ones are
+    /// followed from now on, so one that reaches its top while the finger pulls down can hand the pull over.
+    private func scrolls(under touch: UITouch) -> [UIScrollView] {
+        guard let top = topViewController?.view, let entry = app.stack.last, app.route(of: entry)?.transition == .modal else { return [] }
+        var out: [UIScrollView] = []
+        var v = touch.view
+        while let at = v, at !== top {
+            if let sv = at as? UIScrollView { out.append(sv) }
+            v = at.superview
+        }
+        guard v === top else { return [] }
+        for sv in out where !followed.contains(sv) {
+            followed.add(sv)
+            sv.panGestureRecognizer.addTarget(self, action: #selector(scrollPanned(_:)))
+        }
+        return out
+    }
+
+    /// [sv] moves with a finger pulling down now: it scrolls up and down and isn't at that end yet, or it has a pull
+    /// to refresh (its pull at the top refreshes, as in UIKit's sheet).
+    private static func pullScrolls(_ sv: UIScrollView) -> Bool {
+        guard sv.isScrollEnabled else { return false }
+        if sv.refreshControl != nil || sv.subviews.contains(where: { $0 is UIRefreshControl }) { return true }
+        let inset = sv.adjustedContentInset
+        guard sv.contentSize.height + inset.top + inset.bottom > sv.bounds.height + 0.5 else { return false }
+        // At that end, or past it (pulled into its bounce): it has nothing more to scroll that way.
+        return flipped(sv) ? sv.contentOffset.y < pullEnd(sv) - 0.5 : sv.contentOffset.y > pullEnd(sv) + 0.5
+    }
+
+    /// The offset a finger pulling down scrolls [sv] to: its top, or its end for an inverted list (a chat, drawn upside
+    /// down).
+    private static func pullEnd(_ sv: UIScrollView) -> CGFloat {
+        let inset = sv.adjustedContentInset
+        return flipped(sv) ? max(sv.contentSize.height + inset.bottom - sv.bounds.height, -inset.top) : -inset.top
+    }
+
+    private static func flipped(_ sv: UIScrollView) -> Bool {
+        sv.convert(CGPoint(x: 0, y: 1), to: nil).y < sv.convert(CGPoint.zero, to: nil).y
+    }
+
+    /// Over a scroll view that can't take the pull now (at its top, or one that scrolls sideways only), the drag
+    /// decides first: its pan waits until the drag has failed (a drag up or sideways), as backPan at the left edge.
+    private func dismissFirst(_ other: UIGestureRecognizer) -> Bool {
+        guard let sv = other.view as? UIScrollView, other === sv.panGestureRecognizer, touchScrolls.contains(sv),
+              modalTop() != nil else { return false }
+        return !touchScrolls.contains(where: Self.pullScrolls)
+    }
+
+    private func dismissShouldBegin() -> Bool {
+        guard let m = modalTop() else { return false }
+        let v = dismissPan.velocity(in: view)
+        guard v.y > 0, v.y > abs(v.x) else { return false }  // down, more than sideways
+        // A scroll view under the finger that can still scroll that way scrolls; at its top it hands over (scrollPanned).
+        if touchScrolls.contains(where: Self.pullScrolls) { return false }
+        if app.backWanted.contains(m.entry) {
+            print("zn t=\(ZnDebug.ms()) nav: drag down on a screen that wants Back → BACK to JS")
+            app.systemBack()  // JS decides; the screen moves only if JS pops it
+            dismissToJS = true  // the drag still takes the touch, so nothing under it scrolls or presses as well
+            return true
+        }
+        print("zn t=\(ZnDebug.ms()) nav: drag down, \(m.box == nil ? "native pop" : "see-through")")
+        dragging = m.box
+        return true
+    }
+
+    @objc private func dismissPanned(_ g: UIPanGestureRecognizer) {
+        if dismissToJS {
+            if [.ended, .cancelled, .failed].contains(g.state) { dismissToJS = false }
+            return
+        }
+        let progress = min(max(g.translation(in: view).y / max(view.bounds.height, 1), 0), 1)
+        switch g.state {
+        case .began: startDrag()
+        case .changed: dragMoved(progress)
+        case .ended, .cancelled, .failed: dragEnded(progress, speed: g.velocity(in: view).y, ended: g.state == .ended)
+        default: break
+        }
+    }
+
+    /// A pan of a scroll view in the modal screen: once it is at its top with the finger still pulling down, the
+    /// screen follows the finger from there (the scroll view stays at its top), as UIKit's sheet over its scroll view.
+    @objc private func scrollPanned(_ pan: UIPanGestureRecognizer) {
+        guard let sv = pan.view as? UIScrollView else { return }
+        if let h = handoff {
+            guard h.scroll === sv else { return }
+            sv.contentOffset.y = Self.pullEnd(sv)
+            let progress = min(max((pan.translation(in: view).y - h.from) / max(view.bounds.height, 1), 0), 1)
+            switch pan.state {
+            case .changed:
+                dragMoved(progress)
+            case .ended, .cancelled, .failed:
+                handoff = nil
+                dragEnded(progress, speed: pan.velocity(in: view).y, ended: pan.state == .ended)
+                // It would bounce on from the finger's speed: it stays at its top.
+                sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: Self.pullEnd(sv)), animated: false)
+            default:
+                break
+            }
+            return
+        }
+        guard pan.state == .changed, pan.velocity(in: view).y > 0, touchScrolls.contains(sv), let m = modalTop(),
+              !app.backWanted.contains(m.entry), !touchScrolls.contains(where: Self.pullScrolls) else { return }
+        print("zn t=\(ZnDebug.ms()) nav: drag down, handed over by a scroll view at its top\(m.box == nil ? "" : " (see-through)")")
+        handoff = (sv, pan.translation(in: view).y)
+        sv.contentOffset.y = Self.pullEnd(sv)
+        dragging = m.box
+        startDrag()
+    }
+
+    private func startDrag() {
+        guard dragging == nil else { return }  // a see-through screen moves inside its box
+        let drag = ZnModalDrag()
+        drag.done = { [weak self, weak drag] in
+            if let self, self.modalDrag === drag { self.modalDrag = nil }
+        }
+        modalDrag = drag
+        popViewController(animated: true)
+    }
+
+    private func dragMoved(_ progress: CGFloat) {
+        if let box = dragging { return box.drag(progress) }
+        modalDrag?.update(progress)
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["ZN_SHARED_LOG"] == "1", let f = swipeFlight {
+            print("zn t=\(ZnDebug.ms()) shared: drag down \(String(format: "%.2f", progress)) \(f.whereNow())")
+        }
+        #endif
+    }
+
+    private func dragEnded(_ progress: CGFloat, speed: CGFloat, ended: Bool) {
+        let finish = ended && ZnModalDrag.finishes(progress, speed: speed)
+        print("zn t=\(ZnDebug.ms()) nav: drag down \(finish ? "finished" : "cancelled") at \(String(format: "%.2f", progress)), \(Int(speed)) pt/s")
+        if let box = dragging {
+            dragging = nil
+            return endSeeThrough(box, finish: finish, speed: speed)
+        }
+        guard let drag = modalDrag else { return }
+        if !finish { popped = [] }  // the box stays (UIKit's didShow after the cancel shows it again)
+        drag.end(finish: finish, speed: speed)
     }
 
     /// The shared elements of a push or pop from box [from] to box [to] (ZnShared.swift), or nil when none can fly: a
@@ -556,6 +752,121 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
             out.merge(ZnShared.anchors(entry: l.entry, under: root)) { _, top in top }  // the upper screen's wins
         }
         return out
+    }
+}
+
+/// The drag down that closes a "modal" route (ZnNavController's dismissPan): an interactive pop the finger drives.
+/// The screen moves down with the finger over the one under it, which stays still (as the modal transition leaves
+/// it); the shared elements fly with it (a paused property animator, scrubbed). Let go, both run on as one spring from
+/// the finger's speed: off the bottom (the pop finishes) or back up with a small bounce (none with Reduce Motion).
+/// The screen itself is moved by hand, not by the property animator: a paused animator sets its end value at once,
+/// and SwiftUI then kept the screen's accessibility frames at the bottom after a spring back (XCUITest, VoiceOver).
+final class ZnModalDrag: NSObject, UIViewControllerAnimatedTransitioning, UIViewControllerInteractiveTransitioning {
+    var flight: ZnSharedFlight?
+    /// The transition has ended, either way.
+    var done: () -> Void = {}
+    private var ctx: UIViewControllerContextTransitioning?
+    private weak var screen: UIView?
+    /// The flights' animator (none without shared elements).
+    private var flights: UIViewPropertyAnimator?
+    private var progress: CGFloat = 0
+    private var height: CGFloat = 1
+    /// Let go (the finger's last speed), maybe before UIKit started the transition.
+    private var release: (finish: Bool, speed: CGFloat)?
+    private var released = false
+
+    /// Let go at [progress] (of the screen's height) with [speed] (points a second, down is positive): it closes when
+    /// flicked down, or past a third of the way unless the finger was going back up.
+    static func finishes(_ progress: CGFloat, speed: CGFloat) -> Bool {
+        speed > 800 || (progress > 0.3 && speed > -200)
+    }
+
+    func transitionDuration(using ctx: UIViewControllerContextTransitioning?) -> TimeInterval { 0.4 }
+
+    /// UIKit asks for this only when the pop isn't interactive after all: it runs to the end.
+    func animateTransition(using ctx: UIViewControllerContextTransitioning) {
+        startInteractiveTransition(ctx)
+        end(finish: true, speed: 0)
+    }
+
+    func startInteractiveTransition(_ ctx: UIViewControllerContextTransitioning) {
+        guard self.ctx == nil, let from = ctx.view(forKey: .from), let to = ctx.view(forKey: .to),
+              let toVC = ctx.viewController(forKey: .to) else {
+            ctx.completeTransition(false)
+            return done()
+        }
+        self.ctx = ctx
+        screen = from
+        let box = ctx.containerView
+        let toFrame = ctx.finalFrame(for: toVC)
+        to.frame = toFrame
+        box.insertSubview(to, belowSubview: from)
+        height = max(box.bounds.height, 1)
+        if let flight {
+            flight.lift(in: box, toView: to, toFrame: toFrame)
+            let a = UIViewPropertyAnimator(duration: transitionDuration(using: ctx), curve: .linear) { flight.fly() }
+            a.pauseAnimation()
+            flights = a
+        }
+        print("zn t=\(ZnDebug.ms()) uikit: drag down transition started at \(String(format: "%.2f", progress))")
+        if let r = release {
+            release = nil
+            released = false
+            move(progress)
+            end(finish: r.finish, speed: r.speed)
+        } else {
+            move(progress)
+        }
+    }
+
+    /// The finger is [p] of the screen's height down.
+    func update(_ p: CGFloat) {
+        guard !released else { return }
+        progress = p
+        move(p)
+    }
+
+    private func move(_ p: CGFloat) {
+        guard let ctx else { return }
+        screen?.transform = CGAffineTransform(translationX: 0, y: p * height)
+        flights?.fractionComplete = p
+        ctx.updateInteractiveTransition(p)
+    }
+
+    /// Let go: on to the bottom ([finish]) or back to the top, as a spring that starts at the finger's [speed].
+    func end(finish: Bool, speed: CGFloat) {
+        guard !released else { return }
+        released = true
+        guard let ctx else {
+            release = (finish, speed)
+            return
+        }
+        let left = (finish ? 1 - progress : progress) * height  // points still to go
+        let toward = finish ? speed : -speed
+        // In units of the distance left per second, as a spring's initial velocity is given.
+        let v = left > 1 ? min(max(toward, 0) / left, 30) : 0
+        let damping: CGFloat = finish || znAnimationsOff() ? 1 : 0.8
+        let duration = transitionDuration(using: ctx)
+        if finish { ctx.finishInteractiveTransition() } else { ctx.cancelInteractiveTransition() }
+        if let a = flights {
+            a.isReversed = !finish
+            a.continueAnimation(withTimingParameters: UISpringTimingParameters(dampingRatio: damping, initialVelocity: CGVector(dx: v, dy: v)),
+                                durationFactor: 1)
+        }
+        let screen = self.screen
+        let down = CGAffineTransform(translationX: 0, y: height)
+        UIView.animate(withDuration: duration, delay: 0, usingSpringWithDamping: damping, initialSpringVelocity: v, options: [],
+                       animations: { screen?.transform = finish ? down : .identity }, completion: { [self] _ in
+            // The flights end where the screen ends (their spring may be a frame behind).
+            if let a = flights, a.state == .active {
+                a.stopAnimation(false)
+                a.finishAnimation(at: finish ? .end : .start)
+            }
+            screen?.transform = .identity
+            flight?.land()
+            ctx.completeTransition(finish)
+            done()
+        })
     }
 }
 

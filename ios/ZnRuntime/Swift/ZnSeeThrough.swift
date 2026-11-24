@@ -223,24 +223,39 @@ final class ZnSeeThroughBox: UIViewController {
         }
     }
 
-    // MARK: The back swipe on a see-through screen (route transition "push")
+    // MARK: The back swipe (route transition "push") and the drag down ("modal") on a see-through screen
 
-    /// The top screen is see-through, over another in this box: the back swipe moves it alone. Not one already swiped
-    /// away (it stays here until JS's pop lands, 0.25 s on).
+    /// The top screen is see-through, over another in this box: the back swipe or the drag down moves it alone. Not
+    /// one already swiped away (it stays here until JS's pop lands, 0.25 s on).
     var canDragTop: Bool { layers.count > 1 && layers.last?.seeThrough == true && layers.last?.dragged == false }
 
-    /// [progress] 0...1 of the width: the top screen follows the finger; the screens below stay still.
+    /// [progress] 0...1 of the width (of the height for a "modal" screen, dragged down): the top screen follows the
+    /// finger; the screens below stay still.
     func drag(_ progress: CGFloat) {
-        guard canDragTop, let h = layers.last?.holder else { return }
-        h.transform = CGAffineTransform(translationX: progress * view.bounds.width, y: 0)
+        guard canDragTop, let top = layers.last, let h = top.holder else { return }
+        h.transform = top.transition == .modal ? CGAffineTransform(translationX: 0, y: progress * view.bounds.height)
+            : CGAffineTransform(translationX: progress * view.bounds.width, y: 0)
     }
 
-    /// The finger let go: off screen ([finish], then [closed] tells JS) or back in place.
-    func endDrag(finish: Bool, closed: @escaping () -> Void) {
+    /// The finger let go: off screen ([finish], then [closed] tells JS) or back in place. A "modal" screen goes on as a
+    /// spring from the finger's [speed] (points a second, down), with a small bounce back (none with Reduce Motion),
+    /// as an opaque one's drag (ZnModalDrag).
+    func endDrag(finish: Bool, speed: CGFloat = 0, closed: @escaping () -> Void) {
         guard canDragTop, let top = layers.last, let h = top.holder else { return }
         if finish { top.dragged = true }
-        UIView.animate(withDuration: 0.25, delay: 0, options: [.curveEaseOut], animations: {
-            h.transform = finish ? self.offscreen(.push) : .identity
+        guard top.transition == .modal else {
+            UIView.animate(withDuration: 0.25, delay: 0, options: [.curveEaseOut], animations: {
+                h.transform = finish ? self.offscreen(.push) : .identity
+            }, completion: { _ in if finish { closed() } })
+            return
+        }
+        let at = h.transform.ty
+        let left = finish ? view.bounds.height - at : at  // points still to go
+        let toward = finish ? speed : -speed
+        let v = left > 1 ? min(max(toward, 0) / left, 30) : 0
+        UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: finish || znAnimationsOff() ? 1 : 0.8,
+                       initialSpringVelocity: v, options: [], animations: {
+            h.transform = finish ? self.offscreen(.modal) : .identity
         }, completion: { _ in if finish { closed() } })
     }
 }
