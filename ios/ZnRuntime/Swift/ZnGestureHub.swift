@@ -323,6 +323,8 @@ final class ZnGestureHub: NSObject, UIGestureRecognizerDelegate {
     private var edges: [ZnAfterEdge] = []
     private var timer: Timer?
     private var timerAt: Int64?
+    /// The pans told to wait for the claim in this touch (otherWaits), until the claim resets.
+    private let waiting = NSHashTable<UIGestureRecognizer>.weakObjects()
 
     private init(_ view: UIView) {
         self.view = view
@@ -414,11 +416,15 @@ final class ZnGestureHub: NSObject, UIGestureRecognizerDelegate {
 
     /// One event per node that has one of [touches].
     private func deliver(_ touches: Set<UITouch>, phase: UITouch.Phase) {
-        // Someone else's pan (a scroll, a sheet, the back swipe) took these touches.
+        // Someone else's pan (a scroll, a sheet, the back swipe) took these touches. Not one that waits for the claim
+        // while the claim may still begin: UIKit already shows it as began but holds it (its scroll hasn't moved) until
+        // the claim fails, and it fails itself if the claim begins. Counted as taken, the node let go and the hub failed
+        // the claim, which let the pan go: a drag right after a double tap zoomed a photo turned the List's page in
+        // about 1 in 4, when UIKit gave the move to the pan before the claim (2026-11-24, ImageViewerTests).
         let taken = touches.contains { t in
             (t.gestureRecognizers ?? []).contains { r in
                 !(r is ZnGestureFeed) && !(r is ZnGestureClaim) && (r is UIPanGestureRecognizer || r is UIPinchGestureRecognizer)
-                    && (r.state == .began || r.state == .changed)
+                    && (r.state == .began || r.state == .changed) && !held(r)
             }
         }
         var consumed = false
@@ -583,9 +589,20 @@ final class ZnGestureHub: NSObject, UIGestureRecognizerDelegate {
     /// whose consuming recognizer may still start (not the back swipe: claimsBackEdge decides that one).
     fileprivate func otherWaits(_ other: UIGestureRecognizer) -> Bool {
         let w = otherWaitsNow(other)
+        if w { waiting.add(other) }
         if Self.log, other is UIPanGestureRecognizer { print("zn t=\(ZnDebug.ms()) gesture: \(type(of: other)) on \(other.view.map { "\(type(of: $0)) \($0.frame)" } ?? "-") waits: \(w), \(entries.count) node(s)") }
         return w
     }
+
+    /// [r] waits for the claim, which may still begin: UIKit holds it, whatever its state says.
+    private func held(_ r: UIGestureRecognizer) -> Bool {
+        let h = claim.state == .possible && waiting.contains(r)
+        if Self.log, h { print("zn t=\(ZnDebug.ms()) gesture: \(type(of: r)) would begin, held for the claim") }
+        return h
+    }
+
+    /// The claim's touch is over: its waits go with it.
+    fileprivate func claimReset() { waiting.removeAllObjects() }
 
     private func otherWaitsNow(_ other: UIGestureRecognizer) -> Bool {
         guard other is UIPanGestureRecognizer || other is UIPinchGestureRecognizer, !(other is ZnGestureFeed),
@@ -701,6 +718,7 @@ private final class ZnGestureClaim: UIGestureRecognizer {
     override func reset() {
         super.reset()
         moved = false
+        MainActor.assumeIsolated { hub?.claimReset() }
     }
 }
 

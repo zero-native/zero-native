@@ -99,16 +99,12 @@ final class ImageViewerTests: ZnUITestCase {
     }
 
     /// A pinch and a double tap zoom the photo: a swipe then moves the photo instead of paging. Back to fit, it pages.
-    /// Off by default: it fails in most runs (5 of 6 on 2026-11-24, an idle simulator). Not the zoom: the app's log
-    /// (TEST_RUNNER_ZN_APP_ZN_CONSOLE_FILE=1 TEST_RUNNER_ZN_APP_ZN_GESTURE_LOG=1) shows the double tap settle at 2.5x
-    /// every time. In a failing drag the List's pager pan (UIScrollViewPanGestureRecognizer) begins ~135 ms in, while
-    /// the hub's ZnGestureClaim is still possible, though the claim answered "waits: true" for it at touch down; the
-    /// zoom's pan never starts. In a passing one the zoom starts first (~130 ms) and takes the touch. So the pager
-    /// doesn't wait for the claim (a race, not a timing problem of the test); by hand (simulator HID) the drag moved the
-    /// zoomed photo. Owner: the gesture hub (ZnGestureHub.otherWaits / ZnGestureClaim). Run it with
-    /// TEST_RUNNER_ZN_UI_ZOOM=1 bun run tools/ios-ui-test.ts --only ImageViewerTests/testZoomKeepsThePage.
-    func testZoomKeepsThePage() throws {
-        try XCTSkipUnless(ProcessInfo.processInfo.environment["ZN_UI_ZOOM"] == "1", "set TEST_RUNNER_ZN_UI_ZOOM=1 to run it")
+    /// It was off until round 7 (it failed about 1 in 4): when UIKit gave the drag's move to the List's pager pan before
+    /// the hub's ZnGestureClaim, the pan read "began" though UIKit held it for the claim, and the hub took that as the
+    /// pager having the touch (the zoom let go, the claim failed, the page turned). Now the hub doesn't count a pan held
+    /// for the claim (10 of 10 on 2026-11-24, zn g1 ws). Log a run with TEST_RUNNER_ZN_APP_ZN_CONSOLE_FILE=1
+    /// TEST_RUNNER_ZN_APP_ZN_GESTURE_LOG=1 ("held for the claim").
+    func testZoomKeepsThePage() {
         thumb(2).tap()
         opening("strip opened (TSX screen)")
         let p2 = photo(2, of: 4)
