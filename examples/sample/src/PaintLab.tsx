@@ -9,12 +9,16 @@
 //    only a border stay see-through: the row's stripe shows through them, not a grey slab.
 // 4. Under opacity (drawn as one picture) and in a rounded Pressable (clipped), UIKit-backed parts still draw and take
 //    touches: a Pressable counts taps, a TextField takes typing.
-import { Box, Column, Pressable, Row, Scroll, Stack, Text, TextField } from "@zeronative/ui"
+// 5. An enter / exit fade fades the element as one picture too (round 6, 2026-11-24).
+// 6. A picture that isn't in memory fades in over 150 ms, as Coil's crossfade; one in memory shows at once.
+import { Box, Column, Image, Pressable, Row, Scroll, Stack, Text, TextField } from "@zeronative/ui"
 import { signal } from "@zeronative/core"
 import { c } from "./tokens"
 
 const taps = signal(0)
 const typed = signal("")
+const entered = signal(false)
+const picture = signal("asset:images/offer-placeholder.png")
 
 const A = "#EF4444"
 const B = "#2563EB"
@@ -98,6 +102,32 @@ export function PaintLabScreen() {
             <TextField testID="paint-field" value={typed()} onChangeText={(t: string) => { typed.set(t); console.info(`paint-lab typed ${t}`) }} placeholder="Type here" style={{ height: 40, borderWidth: 1, borderColor: c.ink, paddingHorizontal: 8 }} />
           </Pressable>
         </Column>
+
+        <PaintTitle text="5. An enter / exit fade (3 s) fades the element as one picture: no darker overlap mid-fade" />
+        <Row gap={10} alignItems="center">
+          <Pressable testID="paint-enter-toggle" onPress={() => { entered.set(!entered()); console.info(`paint-lab entered ${entered()}`) }} style={{ padding: 10, borderRadius: 12, backgroundColor: c.pillBg }}>
+            <Text color={c.ink}>{entered() ? "Hide" : "Show"}</Text>
+          </Pressable>
+          <Box style={{ width: 70, height: 60 }}>
+            {entered() && (
+              <Stack testID="paint-entered" enter={{ opacity: 0, duration: 3000 }} exit={{ opacity: 0, duration: 3000 }} style={{ width: 70, height: 60, backgroundColor: "#FDE68A" }}>
+                <Box style={{ position: "absolute", top: 6, start: 6, width: 40, height: 40, backgroundColor: A }} />
+                <Box style={{ position: "absolute", top: 14, start: 24, width: 40, height: 40, backgroundColor: B }} />
+              </Stack>
+            )}
+          </Box>
+        </Row>
+
+        <PaintTitle text="6. A picture not in memory fades in over 150 ms (Coil's crossfade); back to one in memory, no fade" />
+        <Row gap={10} alignItems="center">
+          <Pressable testID="paint-pic-a" onPress={() => { picture.set("asset:images/offer-placeholder.png"); console.info("paint-lab picture a") }} style={{ padding: 10, borderRadius: 12, backgroundColor: c.pillBg }}>
+            <Text color={c.ink}>A</Text>
+          </Pressable>
+          <Pressable testID="paint-pic-b" onPress={() => { picture.set("asset:images/canvas-test.png"); console.info("paint-lab picture b") }} style={{ padding: 10, borderRadius: 12, backgroundColor: c.pillBg }}>
+            <Text color={c.ink}>B</Text>
+          </Pressable>
+          <Image testID="paint-picture" src={picture()} loading="shimmer" style={{ width: 90, height: 60, borderRadius: 8 }} />
+        </Row>
       </Column>
     </Scroll>
   )
