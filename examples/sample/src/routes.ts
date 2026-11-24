@@ -77,6 +77,7 @@ import { NavStartLabScreen, SharedLabDetailScreen, SharedLabScreen, SharedLabSee
 import { PaintLabScreen } from "./PaintLab"
 import { TextPolishLabScreen, TextPolishLinesLabScreen } from "./TextPolishLab"
 import { NavRaceLabScreen, NavRaceTargetScreen } from "./NavRaceLab"
+import { TouchFixLabScreen } from "./TouchFixLab"
 
 export const routes = defineRoutes({
   home: { path: "/", screen: HomeScreen },
@@ -156,7 +157,7 @@ export const routes = defineRoutes({
   motionBindingsLab: { path: "/dev/motion/bindings", screen: MotionBindingsLabScreen, deepLink: true },
   imageViewer: { path: "/dev/image-viewer/full", native: "imageviewer.full", safeArea: "none", transition: "fade" },
   // The TSX viewer (registry 24): see-through, so the lab stays drawn under it while the photo flies and fades.
-  photoViewer: { path: "/dev/image-viewer/tsx", screen: ImageViewerScreen, transparent: true, safeArea: "none", statusBar: "light", restore: false, transition: "none" },
+  photoViewer: { path: "/dev/image-viewer/tsx", screen: ImageViewerScreen, transparent: true, accessibilityHidesBelow: true, safeArea: "none", statusBar: "light", restore: false, transition: "none" },
   // Sheets that leave the tree while open (zn ca3734d). Last, so the numbers of the routes before it do not move.
   sheetLeaveLab: { path: "/dev/sheet-leave", screen: SheetLeaveLabScreen, deepLink: true },
   // The secure lab's native screen: `secure: true` on a plugin's screen. Last, as above.
@@ -210,6 +211,9 @@ export const routes = defineRoutes({
   // A second push or back while a slide is under way (NavRaceLab.tsx). Last, as above.
   navRaceLab: { path: "/dev/nav/race", screen: NavRaceLabScreen, deepLink: true },
   navRaceTarget: { path: "/dev/nav/race/target", screen: NavRaceTargetScreen, restore: false },
+  // A Switch or Checkbox inside a Pressable, a disabled button in a card, a long press in a Scroll, the ripple timings
+  // (TouchFixLab.tsx). Last, as above.
+  touchFixLab: { path: "/dev/touch/fixes", screen: TouchFixLabScreen, deepLink: true },
 })
 
 // Typed navigation: nav.push("amount", { merchantId }) is checked against these routes.

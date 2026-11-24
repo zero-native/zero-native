@@ -22,6 +22,15 @@ final class ImageViewerTests: ZnUITestCase {
         waitLabel(id("iv-status"), "status: \(s)", timeout: timeout, file: file, line: line)
     }
 
+    /// The lab's "opened" line. It is written as the viewer opens, so the lab under it may already be out of the
+    /// accessibility tree (the route's accessibilityHidesBelow): either is fine here (testScreensBelowHidden checks it).
+    private func opening(_ s: String, file: StaticString = #filePath, line: UInt = #line) {
+        let st = id("iv-status")
+        eventually("status \"\(s)\" or the lab hidden (it is \"\(st.exists ? st.label : "<hidden>")\")", file: file, line: line) {
+            !st.exists || st.label == "status: \(s)"
+        }
+    }
+
     /// The lab's thumbnail n (from 1): a button read as "Store photo n".
     private func thumb(_ n: Int) -> XCUIElement { app.buttons["Store photo \(n)"].firstMatch }
 
@@ -58,7 +67,7 @@ final class ImageViewerTests: ZnUITestCase {
 
     func testStripPagesAndCloses() {
         thumb(2).tap()
-        status("strip opened (TSX screen)")
+        opening("strip opened (TSX screen)")
         opened(photo: photo(2, of: 4))
         XCTAssertTrue(appears(counter(2, of: 4), timeout: 5), "the counter doesn't read photo 2 of 4")
         XCTAssertTrue(appears(photo(2, of: 4), timeout: 5), "photo 2 isn't one picture element")
@@ -88,7 +97,7 @@ final class ImageViewerTests: ZnUITestCase {
     func testZoomKeepsThePage() throws {
         try XCTSkipUnless(ProcessInfo.processInfo.environment["ZN_UI_ZOOM"] == "1", "set TEST_RUNNER_ZN_UI_ZOOM=1 to run it")
         thumb(2).tap()
-        status("strip opened (TSX screen)")
+        opening("strip opened (TSX screen)")
         let p2 = photo(2, of: 4)
         opened(photo: p2)
         XCTAssertTrue(appears(counter(2, of: 4), timeout: 5))
@@ -135,9 +144,23 @@ final class ImageViewerTests: ZnUITestCase {
         gone()
     }
 
+    /// The viewer's route says accessibilityHidesBelow (A100): while it shows, VoiceOver (and so XCUITest) finds
+    /// nothing of the lab under it; once it has closed, the lab is read again.
+    func testScreensBelowHidden() {
+        XCTAssertTrue(thumb(1).exists && id("iv-status").exists, "the lab isn't in the tree before the viewer opens")
+        thumb(2).tap()
+        opened(photo: photo(2, of: 4))
+        eventually("the lab under the viewer is out of the accessibility tree") { !thumb(1).exists && !id("iv-status").exists }
+        XCTAssertFalse(app.buttons["One photo (no count)"].exists, "a lab button under the viewer is still found")
+        close.tap()
+        gone()
+        status("strip closed on 2")
+        XCTAssertTrue(appears(thumb(1), timeout: 5), "the lab's thumbnail is not read again after the viewer closed")
+    }
+
     func testOnePhotoReadsItsAlt() {
         app.buttons["One photo (no count)"].tap()
-        status("one opened (TSX screen)")
+        opening("one opened (TSX screen)")
         opened()
         // Its own alt, no counter with one photo.
         XCTAssertTrue(appears(app.images["Shop front"], timeout: 5), "the photo doesn't read its alt")
@@ -148,7 +171,7 @@ final class ImageViewerTests: ZnUITestCase {
 
     func testOptionsLabels() {
         reveal(app.buttons["Options: no swipe close, no double tap, Hindi words, grey"]).tap()
-        status("options opened (TSX screen)")
+        opening("options opened (TSX screen)")
         // The app's own words: the close label and the photo label template.
         let band = app.buttons.matching(NSPredicate(format: "label == %@", "Band karein")).firstMatch
         opened(band)
@@ -167,7 +190,7 @@ final class ImageViewerTests: ZnUITestCase {
 
     func testDragDownCloses() {
         thumb(1).tap()
-        status("strip opened (TSX screen)")
+        opening("strip opened (TSX screen)")
         opened(photo: photo(1, of: 4))
         let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
         start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 350)))
@@ -177,7 +200,7 @@ final class ImageViewerTests: ZnUITestCase {
 
     func testErrorShowsRetry() {
         reveal(app.buttons["Broken, refused, then good"]).tap()
-        status("broken opened (TSX screen)")
+        opening("broken opened (TSX screen)")
         // The picsum 404: the error words and the retry button, which loads again. The button's identifier counts the
         // loads (imageviewer-retry-n, ViewerPage.swift).
         let retry = app.buttons.matching(NSPredicate(format: "label == %@", "Try again")).firstMatch
@@ -199,7 +222,7 @@ final class ImageViewerTests: ZnUITestCase {
     /// The app's own nav.back() closes the viewer at once and the promise gives null (open.ts), as on Android.
     func testAppBackGivesNull() {
         reveal(app.buttons["Open, then the app's nav.back() at 1.5 s"]).tap()
-        status("app-back opened (TSX screen)")
+        opening("app-back opened (TSX screen)")
         XCTAssertTrue(appears(close, timeout: 10), "no close button")
         status("app-back closed: null", timeout: 6)
         gone()
