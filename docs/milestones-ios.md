@@ -172,10 +172,10 @@ then Android must pass its 38-case phone matrix again. Then on iOS: bundle pool 
 verify (ECDSA P-256 / SHA-256, CryptoKit), install, health facts and boot guard (MetricKit or core's crash mark),
 Updates module, apply in place behind a cover. Same protocol as Android (`docs/ota.md` §3.4–3.6). About 5 days.
 
-### Phase 4: gestures and motion [zn] — **done on the simulator, behind ZN_MOTION_ENGINE=1 in Debug** (2026-11-21 to 11-23; ZeroBill uses none)
+### Phase 4: gestures and motion [zn] — **done on the simulator; the engine is on in every build since the motion gate** (2026-11-21 to 11-24; ZeroBill uses none)
 Built in the gap rounds: the engine, bindings, gestures, element values, useZoom, tilt, animateLayout, shared elements,
-reorder, the plugin API (§6, §8). Release builds still register the stub Motion module (ZnMotionModule.swift) until the
-motion gate decides (`docs/motion.md`). The plan as it was:
+reorder, the plugin API (§6, §8). Since the motion gate (2026-11-24, host API 10) every build registers the real engine;
+`ZN_MOTION_ENGINE=0` (Debug only) brings back the old stub for comparison (`docs/motion.md`, `docs/ota.md` §3.2). The plan as it was:
 `docs/motion.md` §14 is the porting guide. Motion values, timings, formulas, bindings; gestures, element values,
 shared elements, reorder, drop zones, tilt; v1.1: `useZoom`, snapping and scroll events, `keyboardDismissMode`,
 width / height from a value, the transparent route; then the TSX image viewer replaces the Swift one.
@@ -404,7 +404,7 @@ empty from 2026-11-22 (the last was prop 293, scrollCommand) and the notice was 
 | State | Modules |
 |---|---|
 | zn, done on iOS (27) | Alert, Analytics, Auth, Clipboard, Crashlytics, DeviceInfo, DocumentScanner, Fetch, ImageViewer (3), Keyboard, Launches, Location, Lottie, NetInfo, Notifications, Os, Pdf, Permissions, Push, Scanner, SecureStore, Splash, Tasks, Toast, Updates (real OTA once the app configures it; Android's "off" answers until then), Vibration, WebView |
-| zn, Motion (1) | The stub (v1) in Release builds; the engine with ZN_MOTION_ENGINE=1 in Debug (§4 Phase 4). Only image-viewer's TSX screen uses it; ZeroBill doesn't open that screen |
+| zn, Motion (1) | The real engine in every build since the motion gate (2026-11-24, host API 10; §4 Phase 4). Only image-viewer's TSX screen uses it; ZeroBill doesn't open that screen |
 | zn, no iOS module by design (1) | AdId (JS answers `{ id: null }`) |
 | ZeroBill's own (6), Phase 2 | Upi (done), GoogleSignIn (to build; answers no meanwhile), Truecaller / InAppUpdate / InstallReferrer (answer no; InAppUpdate → zn app-updates later), LegacyData (reads nothing yet) |
 

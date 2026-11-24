@@ -40,7 +40,7 @@ export const DEFAULT_ROUTE = "imageViewer"
 
 /**
  * One picture. Links that load: https, `asset:<path>` (a picture in the bundle), `zn://file/<name>` (a file a plugin
- * made), `content://` (from a picker or another app), `file://` inside the app's own folders only, and
+ * made), `content://` (Android only: from a picker or another app; iOS refuses it, use a `zn://file` handle or `file://`), `file://` inside the app's own folders only, and
  * `data:image/...;base64,` up to 5 MB. `uri` is react-native-image-viewing's name, `url` is
  * react-native-image-zoom-viewer's. `alt` is what TalkBack reads. `headers` go with an https request (a login token);
  * they stay in memory, never in the saved params, and are never logged.

@@ -31,8 +31,9 @@
 // - Data-only messages (content-available) reach the app only while it runs, or as a background wake that iOS rations
 //   and never gives after the user closed the app. iOS's fetchCompletionHandler is answered once, within 25 s, even when
 //   JS is slow or not running (ZnTasks' answerByMs, and a cap here): a handler never called makes iOS end the app and
-//   wake it less. JS doesn't start for a background launch yet (§3): the message is kept and `push.message` runs at the
-//   next start (or when the app opens), with its `sentAt`, so JS can tell it is late.
+//   wake it less. A background launch starts JS with no window (ZnTasks.run starts ZnApp.prepare), so `push.message`
+//   runs then; a message JS can't answer in time is kept and runs at the next start, with its `sentAt`, so JS can tell
+//   it is late.
 // - `zn_ota=check` messages run core's OTA check natively (OtaPush.swift), as Android's OTA check job, within iOS's
 //   limits for background pushes.
 import Foundation

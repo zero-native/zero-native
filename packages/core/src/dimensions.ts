@@ -6,8 +6,8 @@
 //
 // The values come from native (app event WINDOW, android/runtime/.../ZnWindow.kt): a first value right after the main
 // script, then the measured window and each change (rotation, split screen, font size). Reads go through a signal, so
-// a read inside JSX or an `effect` follows changes. They can't size a layout: width, height and margin are fixed at
-// build time (docs/rn-compatibility.md §0). Use them in logic, or use flex and "N%" sizes.
+// a read inside JSX or an `effect` follows changes. They can size a layout too: width, height, margin and padding take
+// a value from a signal (docs/rn-compatibility.md §0, Registry 23), e.g. `width: Dimensions.get("window").width`.
 import { APP, AppEvent } from "./app-events"
 import { reportError } from "./errors"
 import { onEvent } from "./events"
