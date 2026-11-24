@@ -39,7 +39,7 @@ Android is the reference implementation and is in production. iOS now has every 
 | `<Scroll>` pull-to-refresh | ✅ | ✅ | Android draws its disc (`ZnPullRefresh.kt`); iOS keeps UIKit's spinner (`ZnTabsRefresh.swift`), with a disc only with `refreshBackground` |
 | Declarative `animate`, `enter`, `exit` | ✅ | ✅ | — |
 | OTA updates (signed bundles, rollback, launch gate, `zn-updates`) | ✅ | ✅ | bsdiff (`znbsdiff1`) patches on both |
-| Live reload (`zn dev`) | ✅ | ✅ | Simulator with no setup; an iPhone with `zn dev --lan` (Bonjour, Debug builds only) |
+| Live reload (`zn dev`) | ✅ | ✅ | Simulator with no setup; an iPhone with `zn dev --lan` (Bonjour, Debug builds only; built, not yet checked on a phone) |
 | UI-thread motion & gestures (`useMotion`, `derive()`, `usePan`, `sharedTag`, `animateLayout`) | ✅ | ✅ | The real engine in every iOS build since 2026-11-24 (host API 10). Older iOS builds have a stub: see §3 |
 | Runtime layout slots (`width`, `height`, `min/max`, `flex`, `gap`, `aspectRatio`, radii, `top/bottom/start/end`, `fontSize`, `lineHeight`, `letterSpacing`) & `display: "none"` | ✅ | ✅ | — |
 | `<Canvas>` (2D draw commands) | ✅ | ✅ | Core Graphics on iOS |
@@ -66,13 +66,24 @@ marked **gap**.
   "unavailable". The update server sends them no bundle that requires Motion, and it knows them by
   `capabilities.os` or `store.os` ([ota.md](../ota.md) §3.2). Ship an App Store build with host API 10 before you send
   a bundle that uses motion (or the TSX image viewer) to iOS users.
-- **Checked on the simulator only.** A real background launch (a silent push, a BGTask) is checked only with
-  simulated launches on the simulator, not yet on an iPhone. The per-frame motion cost (about 3–5 ms of main thread
-  per frame for 30 bound elements) was measured on the simulator.
+- **Checked on the simulator only, not yet on an iPhone** (the full list: [milestones-ios.md](../milestones-ios.md) §12):
+  - a real background launch (a silent push, a BGTask), checked only with simulated launches;
+  - `zn dev --lan` on a phone (Bonjour and the Local Network prompt);
+  - secure screens (`secure: true`) under a real screenshot, screen recording and mirroring;
+  - one real OTA update (download, apply, rollback);
+  - the camera, UPI apps, universal links, VoiceOver and RTL (ZeroBill's App Store builds may already cover the
+    first three);
+  - the per-frame motion cost: about 5 ms of main thread per frame for 30 bound elements (4.8 ms Release, up to 5.9
+    with blur, 3D and corners; about 2 ms of that is a fixed cost per frame, then about 0.1 ms an element), measured
+    at 60 Hz on the simulator, not on a 120 Hz iPhone.
 - **gap: a Switch or Checkbox inside a Pressable:** on iOS the row takes the tap and the control doesn't turn; on
   Android both fire (A53, open).
 - **gap: a route with `transition: "modal"` doesn't close on a drag down** (iOS's own modals do). It closes with
   `nav.back()` or a Back button; Android's system back closes it.
+- **gap: VoiceOver reaches the screen under a see-through screen** (the TSX image viewer; A100, open). Check such
+  screens with VoiceOver before you ship them.
+- **Known issue: `<Sheet motion={m}>` after a fast flick close** gives the progress in steps (seen on an iPhone), so
+  anything bound to it moves in steps too.
 
 ### Components and props
 - **`<Text>`:**
@@ -129,7 +140,8 @@ marked **gap**.
     (XCUITest: `otherElements[id]`). Fields and NativeView carry it on their UIView.
   - A Pressable's accessibility frame includes its touch area (`hitSlop`, grown to the 44 pt minimum; Android: the
     layout bounds only).
-  - With a see-through screen open (the TSX image viewer), VoiceOver still reaches the screen below (A100).
+  - **gap:** with a see-through screen open (the TSX image viewer), VoiceOver still reaches the screen below (A100,
+    open).
 - **Touches:**
   - Every Pressable takes taps up to Apple's 44 pt minimum (its `hitSlop` grown evenly; `hitSlop` only adds). Where
     two grown areas meet, the nearer Pressable takes the tap. Android uses Compose's 48 dp.
@@ -278,7 +290,8 @@ marked **gap**.
   containers (a Scroll's content root, a List row) the place is in that container's coordinate space.
 - **Impressions** (`impressionKey` / `useImpressions`) use Android's rules: threshold 0.35 by default, clamped
   0.01–1; `minMs`; top screen and app in front only; once per screen visit; 500 ms batches, sent at once when the app
-  goes to the back or the screen leaves. Keys inside a Sheet or Modal count under the screen. The visible box is cut by
+  goes to the back or the screen leaves. Keys inside a Sheet or Modal count under the screen, and a hidden tab or
+  pointerEvents "none" around a Sheet or Modal reaches its content too, as on Android. The visible box is cut by
   the window, scroll views, clipping views and overflow-hidden nodes; layouts that don't clip don't cut it (Android's
   `boundsInWindow` is cut by every layout around the node), so a keyed node that sticks out of a parent that doesn't
   clip also counts the part outside.
@@ -311,8 +324,9 @@ marked **gap**.
   push, a notification button or a background launch. `appState()` is "background" until the window's START. Screens
   come with the window.
   - Tasks keep the app awake: ZnTasks holds UIApplication background time while a task waits or runs (about 30 s in
-    all). When iOS ends it, open tasks are aborted, dropped, or answered and kept, as at their answer-by time. A plugin
-    can set `answerByMs` so its caller is answered in time.
+    all). When iOS ends it, open tasks are aborted, dropped, or answered and kept, as at their answer-by time. Tasks
+    restored from an earlier start hold time only once JS has them. A plugin can set `answerByMs` so its caller is
+    answered in time. Android doesn't keep the process alive for a task: the plugin's own service or `goAsync` does.
   - Plugins decide between an event and `getInitialNotification` with `ZnApp.tapIsEvent`: with no screens yet, a call
     waiting, or a tap within 1 s of the app first being in front, the tap is kept as the initial tap (Android's launch
     Intent). `getInitialNotification` waits for the screens and the front, at most 10 s.
@@ -403,8 +417,8 @@ marked **gap**.
 
 ### Testing
 - UI tests on iOS: XCUITest in the package sample (`ios/SamplePackage/ZnSampleUITests`), found by `testID`. Run with
-  `bun run ios:ui-test [--device <simulator>] [--only Class/test] [--dump <route>]`; CI runs them every night
-  (`.github/workflows/ios-ui-tests-nightly.yml`). The test build is unsigned, so Keychain screens need an ad hoc signed
+  `bun run ios:ui-test [--device <simulator>] [--only Class/test] [--dump <route>]`. A nightly CI run is added
+  (`.github/workflows/ios-ui-tests-nightly.yml`, first run pending; a failed test runs again once). The test build is unsigned, so Keychain screens need an ad hoc signed
   build.
 - The UI test for the TSX viewer's double tap and pinch is off by default (about one run in four pages instead of
   zooming on a busy simulator); `TEST_RUNNER_ZN_UI_ZOOM=1` turns it on.

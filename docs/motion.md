@@ -282,7 +282,8 @@ Done (2026-11-24; docs/milestones-ios.md "Gestures and motion"). As built (`ios/
   (Android's numbers, checked by the `motion` Mac suite); formulas: `ZnFormula.swift`, op for op.
 - Bindings: a slot that holds a motion value is read in a leaf modifier (`ZnMotionBindings.swift`: ZnLayer, the
   background, the corners, ZnSizeFrame); the value's cell is `@Observable`, so a moving value redraws only those
-  modifiers, never a screen's body (about 3–5 ms of main thread per frame for 30 bound elements on the simulator).
+  modifiers, never a screen's body (about 5 ms of main thread per frame for 30 bound elements on the simulator: 4.8 ms
+  Release, up to 5.9 with blur, 3D and corners; about 2 ms fixed per frame, then about 0.1 ms an element).
 - Gestures: one hub per screen (`ZnGestureHub.swift`) feeds UITouches to recognizers ported from ZnGesture.kt
   (`ZnGestureRecognizers.swift`, the `gestures` Mac suite); useZoom is `ZnZoom.swift`, not a UIScrollView zoom.
 - Element values: `ZnElementMotion.swift` (boxes, `pressed`, scroll values, follow); shared elements: `ZnShared.swift`
