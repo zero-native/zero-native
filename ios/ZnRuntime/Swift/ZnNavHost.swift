@@ -171,6 +171,16 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
     /// The swipe on a see-through screen moves it alone, inside its box (no UIKit pop).
     private var dragging: ZnSeeThroughBox?
     private let edge: CGFloat = 30
+    /// The boxes last given to setViewControllers. During a slide UIKit queues the change and `viewControllers` still
+    /// holds the old boxes until the queued slide starts: a didShow then isn't a change native made by itself.
+    private var lastSet: [UIViewController] = []
+    /// The box a pop UIKit made itself took off (the back swipe's, or a native screen's own pop), until didShow; JS
+    /// hears FORCED_BACK for its entries then. Every change JS asks for goes through setViewControllers instead, so a
+    /// tap on a screen still sliding in (a push queued behind the slide) is never taken for a swipe back (2026-11-24:
+    /// the pushed screen's instance was released and it showed blank white).
+    private var popped: [ZnSeeThroughBox] = []
+    /// A touch on backPan that started within [edge] of the left edge: scroll views under it wait for the swipe.
+    private var edgeTouch = false
     /// backPan's name: the gesture hub (ZnGestureHub.swift) leaves it to claimsBackEdge instead of making it wait.
     static let backPanName = "zn.backPan"
 
@@ -213,8 +223,10 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
             guard !failureShown else { return }
             failureShown = true
             // The app's JS didn't start (or the bundle can't be read): the error screen, with no button (ZnErrorScreen).
-            setViewControllers([UIHostingController(rootView: ZnErrorScreenView(message: failure, startFailed: true, canGoBack: false,
-                                                                                onRetry: {}, onBack: {}))], animated: false)
+            let error = UIHostingController(rootView: ZnErrorScreenView(message: failure, startFailed: true, canGoBack: false,
+                                                                        onRetry: {}, onBack: {}))
+            lastSet = [error]
+            setViewControllers(lastSet, animated: false)
             return
         }
         let contents = stack.map(screen(for:))
@@ -229,13 +241,16 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
                 return box
             }()
         }
-        let navChanges = vcs != viewControllers
+        // Against the boxes last set, not `viewControllers`: while UIKit still holds a queued change, those are stale
+        // (a push then a back within one slide would compare equal and leave the queued push showing).
+        let current = lastSet
+        let navChanges = vcs != current
         // Under the splash: no slide. Nor for a new top screen JS pushed while opening the first screens (before NAV
         // STARTED): it is simply there, as Android's openedAtStart; its back still slides.
-        let shownBefore = viewControllers.flatMap { ($0 as? ZnSeeThroughBox)?.entries ?? [] }
+        let shownBefore = current.flatMap { ($0 as? ZnSeeThroughBox)?.entries ?? [] }
         let atStart = stack.last.map { !shownBefore.contains($0) && app.openedAtStart.contains($0) } ?? false
-        let animated = !viewControllers.isEmpty && !ZnSplash.holding && !atStart
-        let shownBox = viewControllers.last
+        let animated = !current.isEmpty && !ZnSplash.holding && !atStart
+        let shownBox = current.last
         // The boxes in a slide under way (a push or pop, the swipe's too).
         let moving = transitionCoordinator.map { c in
             [c.viewController(forKey: .from), c.viewController(forKey: .to)].compactMap { $0.map(ObjectIdentifier.init) }
@@ -258,7 +273,10 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
         }
         if navChanges {
             print("zn t=\(ZnDebug.ms()) uikit: setViewControllers (\(stack.count) screens\(vcs.count == stack.count ? "" : " in \(vcs.count) box\(vcs.count == 1 ? "" : "es")"), animated \(animated)\(atStart ? ", opened at start" : ""))")
+            lastSet = vcs
             setViewControllers(vcs, animated: animated)
+            // An animated pop keeps the old boxes until its slide ends; a change during a slide waits behind it.
+            if viewControllers != vcs { print("zn t=\(ZnDebug.ms()) uikit: not shown yet (its slide, or the one under way, first)") }
         }
         // didShow doesn't come after a cancelled swipe: the slide's end applies the waiting changes either way.
         if !pending.isEmpty, let c = transitionCoordinator {
@@ -333,8 +351,32 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
     func navigationController(_ nav: UINavigationController, didShow vc: UIViewController, animated: Bool) {
         print("zn t=\(ZnDebug.ms()) uikit: didShow")
         applyPending()
-        let shown = viewControllers.flatMap { ($0 as? ZnSeeThroughBox)?.entries ?? [] }
-        if !shown.isEmpty, shown != app.stack { app.nativeChanged(to: shown) }
+        // A pop UIKit made itself: the boxes it took off are gone from JS's stack too (FORCED_BACK).
+        let gone = popped.filter { !viewControllers.contains($0) }
+        popped = []
+        if !gone.isEmpty {
+            lastSet = lastSet.filter { box in !gone.contains { $0 === box } }
+            let entries = Set(gone.flatMap(\.entries))
+            let shown = app.stack.filter { !entries.contains($0) }
+            if !shown.isEmpty, shown != app.stack { app.nativeChanged(to: shown) }
+            return
+        }
+        guard viewControllers != lastSet else { return }
+        // JS's change (queued behind the slide that just ended) comes next: its own slide starts now. Should UIKit
+        // have dropped it, it is shown at once.
+        print("zn t=\(ZnDebug.ms()) uikit: JS's newer stack still to come")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self, self.transitionCoordinator == nil, self.viewControllers != self.lastSet, !self.failureShown else { return }
+            print("zn t=\(ZnDebug.ms()) uikit: the queued change didn't run; shown at once")
+            self.setViewControllers(self.lastSet, animated: false)
+        }
+    }
+
+    /// Every pop UIKit makes by itself comes here (our back swipe's popViewController; a native screen's own pop).
+    override func popViewController(animated: Bool) -> UIViewController? {
+        let box = super.popViewController(animated: animated)
+        if let box = box as? ZnSeeThroughBox { popped.append(box) }
+        return box
     }
 
     /// The moved boxes' own changes, now that the slide has ended.
@@ -344,6 +386,21 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
         for w in waiting where viewControllers.contains(w.box) {
             w.box.set(w.layers, animated: w.animate && w.box === viewControllers.last && !ZnSplash.holding)
         }
+    }
+
+    func gestureRecognizer(_ g: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        if g === backPan { edgeTouch = touch.location(in: view).x <= edge }
+        return true
+    }
+
+    /// At the left edge the back swipe goes first, as Android's system back gesture over a pager or a row: a scroll
+    /// view that scrolls sideways (a Carousel, a horizontal Scroll or List) under a touch starting there waits until
+    /// the swipe has failed (a drag left or up and down, a screen with nothing to go back to, a gesture holding the
+    /// edge). Before 2026-11-24 the rail scrolled instead and Back worked only between the rails.
+    func gestureRecognizer(_ g: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
+        guard g === backPan, edgeTouch, let sv = other.view as? UIScrollView, other === sv.panGestureRecognizer,
+              let top = topViewController?.view, sv.isDescendant(of: top) else { return false }
+        return sv.contentSize.width > sv.bounds.width + 0.5 || sv.alwaysBounceHorizontal
     }
 
     func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
@@ -399,6 +456,7 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
                 print("zn t=\(ZnDebug.ms()) nav: swipe back finished")
             } else {
                 interaction?.cancel()
+                popped = []  // the box stays (UIKit's didShow after the cancel shows it again)
                 print("zn t=\(ZnDebug.ms()) nav: swipe back cancelled")
             }
             interaction = nil

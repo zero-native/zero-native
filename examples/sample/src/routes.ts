@@ -77,6 +77,7 @@ import { NavStartLabScreen, SharedLabDetailScreen, SharedLabScreen, SharedLabSee
 import { PaintLabScreen } from "./PaintLab"
 import { TextPolishLabScreen } from "./TextPolishLab"
 import { TextPolishLabScreen, TextPolishLinesLabScreen } from "./TextPolishLab"
+import { NavRaceLabScreen, NavRaceTargetScreen } from "./NavRaceLab"
 
 export const routes = defineRoutes({
   home: { path: "/", screen: HomeScreen },
@@ -207,6 +208,9 @@ export const routes = defineRoutes({
   textPolishLab: { path: "/dev/text-polish", screen: TextPolishLabScreen, deepLink: true },
   // numberOfLines={0} on its own screen (Android throws there until ZnTemplate.kt maps 0). Last, as above.
   textPolishLinesLab: { path: "/dev/text-polish/lines", screen: TextPolishLinesLabScreen, deepLink: true },
+  // A second push or back while a slide is under way (NavRaceLab.tsx). Last, as above.
+  navRaceLab: { path: "/dev/nav/race", screen: NavRaceLabScreen, deepLink: true },
+  navRaceTarget: { path: "/dev/nav/race/target", screen: NavRaceTargetScreen, restore: false },
 })
 
 // Typed navigation: nav.push("amount", { merchantId }) is checked against these routes.
