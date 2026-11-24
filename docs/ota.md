@@ -4,8 +4,10 @@
 > production release are planned in `docs/ota-architecture-plan.md`. This doc stays the record of what is built.
 
 **Status: built on Android (steps 4.0–4.9 done 2026-10-31; the phone test matrix passed 28 of 28 on the Lava after the hardening steps, 2026-11-02;
-`docs/ota-test-matrix.md`). Decided 2026-10-30 (Pavan accepted D1–D5 as recommended, §2). Not built: the GCS store
-adapter (waits for a test bucket), BSDiff patches, iOS (§4 "later").** Built from
+`docs/ota-test-matrix.md`). Decided 2026-10-30 (Pavan accepted D1–D5 as recommended, §2). Built since: bsdiff
+patches (`znbsdiff1`, `docs/ota-patches.md`; iOS since 2026-11-22) and the iOS client (§3.5, "iOS"; 2026-11-10; the
+simulator matrix 20 of 20, `docs/ota-test-matrix.md` "iOS"; the phone part not run yet). Not built: the GCS store adapter (waits for a test bucket).**
+Built from
 ARCHITECTURE §16 and ZeroBill's React Native OTA v2 (`my-rn-app/docs/ota_architecture.md`, v7.1),
 keeping every lesson that applies.
 
@@ -15,7 +17,8 @@ keeping every lesson that applies.
   built-in bundle) or from a downloaded bundle's folder; one place decides which (`ZnBundles.kt`, step 4.1).
 - Size now: the sample is **346 KB raw, ~115 KB compressed** (no React, no framework JS beyond our small runtime).
   ZeroBill's RN bundle is 4.3 MB JS + 0.6 MB images (hence its BSDiff patches).
-- What can't change over the air: Kotlin / C++ (the renderer, native modules, Hermes), the registry, host functions.
+- What can't change over the air: Kotlin / Swift / C++ (the renderers, native modules, Hermes), the registry, host
+  functions.
   The **capability manifest** (§3.2) is how a bundle knows whether the installed app can run it.
 
 ## 2. Decisions (2026-10-30: the recommendation was taken for all five)
@@ -205,7 +208,7 @@ Rollout applies to rollbacks too: roll back at 100 % so every phone on the bad b
 them later). **Telemetry**: one line per check in `<data>/<app>/checks-<date>.ndjson` (install id, running bundle,
 seq, decision, the phone's outcomes). `GET /health`.
 
-### 3.5 On the phone (Kotlin, `ZnOta`)
+### 3.5 On the phone (Kotlin, `ZnOta`; iOS at the end of this section)
 - **Process start** (every start, no network): new APK or changed capabilities → drop bundles that no longer fit;
   apply a downloaded bundle (SHA checked again); pick the bundle; **load from the bundle folder or the APK** (the
   runtime's loader, templates and images all go through one "where is the bundle" place).
@@ -263,7 +266,18 @@ seq, decision, the phone's outcomes). `GET /health`.
   `holdApply()` is a native call that is never answered: releasing it (or closing the screen that asked) cancels it,
   and native counts the open ones. Both run on the main thread, so a hold sent before `applyNow` is always seen.
 
-### 3.6 Safety nets (all RN lessons; built in step 4.7: `ZnOtaHealth.kt`, `ZnOta.kt`)
+- **iOS** (`ios/ZnRuntime/Swift/`: `ZnOta.swift`, the rules in `ZnOtaRules.swift` tested on the Mac with
+  `bun run ios:ota-test`, `ZnOtaInstall.swift`, `ZnOtaGate.swift`, `ZnBsPatch.swift`): the same protocol, rules and
+  safety nets. The app calls `ZnOta.configure(ZnOta.Config(server:channel:publicKeys:))` in its app delegate, after
+  its plugins and before `ZnApp.prepare` (the sample: `ios/Sample/ZnSampleApp.swift`). Differences: files live in
+  Application Support/zn-ota, kept out of backups; the app build is "<version> (<build>)" and its install time the
+  executable's date (Android: versionCode and lastUpdateTime); the built-in bundle is in the app's resources (Android:
+  the APK's assets); iOS keeps no exit records, so a crash mark written by signal and exception handlers says "crash"
+  (sure) and a launch that ended on screen with no mark counts as unsure. A `zn_ota=check` push runs the check natively
+  in `plugins/firebase-messaging` on both. The update server keeps motion bundles from iOS apps below host API 10
+  (§3.2). Patches: `docs/ota-patches.md` §6.
+
+### 3.6 Safety nets (all RN lessons; built in step 4.7: `ZnOtaHealth.kt`, `ZnOta.kt`; iOS: `ZnOtaRules.swift`)
 Only a **downloaded** bundle is ever judged; the APK's own bundle always runs. What the phone remembers is in
 `zn-ota/health.json` (the rules are pure functions, unit-tested: `ZnOtaHealthTest`).
 - **"Screens up":** JS sends NAV STARTED (kind 8, host API 3) right after it built the first screens. A bundle built
@@ -398,7 +412,7 @@ Only a **downloaded** bundle is ever judged; the APK's own bundle always runs. W
 | 4.7 | Safety nets: watchdog, error-before-healthy rollback, healthy mark, startup guard, APK-newer, capability change | **done 2026-10-31** (§3.6; `docs/milestones.md` log) |
 | 4.8 | Crash traces + telemetry: bundle id everywhere, source maps per bundle, `zn symbolicate` | **done 2026-10-31** (§3.7; `docs/milestones.md` log) |
 | 4.9 | Phone test matrix (below), docs, guide notes ("what OTA can and can't change", busy moments, state formats) | **done 2026-10-31** (22 of 22 on the Lava: `docs/ota-test-matrix.md`) |
-| later | BSDiff patches (D5), CDN / signed download links, push-started checks (an `Updates.checkInBackground()` hook for apps' FCM handlers) *(built 2026-11-04 in push v2, see below)*, iOS client | when needed |
+| later | BSDiff patches (D5) *(built: `docs/ota-patches.md`; iOS 2026-11-22)*, CDN / signed download links, push-started checks (an `Updates.checkInBackground()` hook for apps' FCM handlers) *(built 2026-11-04 in push v2, see below)*, iOS client *(built 2026-11-10, §3.5)* | when needed |
 | push v2 | Push-started checks: a data message `zn_ota=check` runs `ZnOta.check` in native code (`plugins/firebase-messaging`). On by default; turn it off with `PushPlugin(otaCheck = false)`. | **done 2026-11-04** |
 
 **Known limit (push check):** the check from a push runs **at once**. It does not wait for the start delay that normal
@@ -418,7 +432,8 @@ bundle that throws at start → rollback in one launch; bundle that crashes → 
 the last good bundle or on Android < 11); APK update newer than the
 OTA bundle; **older app offered a newer bundle needing a module it lacks → ignores it**; low storage; airplane mode;
 FCM-style background start doesn't count as a launch. **Built:** `bun run ota:phone` runs it (28 cases) on a phone;
-results and what can't be run there: `docs/ota-test-matrix.md`.
+results and what can't be run there: `docs/ota-test-matrix.md`. iOS: 20 cases on the simulator, by hand
+(`docs/ota-test-matrix.md` "iOS"; the rules alone: `bun run ios:ota-test`); the phone part waits for an iPhone.
 
 ## 5. What stays the app's job (as in the RN app)
 Which moments are safe to apply (the gates), the update banner and its wording, ~~push messages that trigger checks~~
