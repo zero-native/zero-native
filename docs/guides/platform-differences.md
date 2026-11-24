@@ -78,14 +78,14 @@ marked **gap**.
     at 60 Hz on the simulator, not on a 120 Hz iPhone.
 - **A Switch or Checkbox inside a Pressable:** on iOS the control takes its own tap and the row doesn't fire
   (innermost wins, since 2026-11-24); on Android both fire until ZnSwitch / ZnCheckbox keep the touch (A53).
-- **gap: a route with `transition: "modal"` doesn't close on a drag down** (iOS's own modals do). It closes with
-  `nav.back()` or a Back button; Android's system back closes it.
+- **A route with `transition: "modal"` closes on a drag down on iOS** (since 2026-11-25, as iOS's own sheets): past
+  30% of its height or a downward flick it closes as `nav.back()`, a shorter drag springs back, a Scroll inside hands
+  the pull over only at its top, shared elements follow the finger, and a screen with `useBack` asks JS and doesn't
+  move. Android closes it with the system back.
 - **The screens under a see-through screen and VoiceOver:** route option `accessibilityHidesBelow: true` (with
   `transparent: true`; set on the TSX image viewer's route) hides them from VoiceOver while it shows, and focus goes
   back to the opener on close (iOS, 2026-11-24). Android ignores the option for now, so TalkBack still reaches them
   (A100).
-- **Known issue: `<Sheet motion={m}>` after a fast flick close** gives the progress in steps (seen on an iPhone), so
-  anything bound to it moves in steps too.
 
 ### Components and props
 - **`<Text>`:**
@@ -124,8 +124,8 @@ marked **gap**.
     start and end follow the layout direction.
   - A TextField or link Text on a hidden tab, or scrolled out of its Scroll or List, doesn't block taps on Pressables
     drawn there.
-  - Typing very fast into a field that `onChangeText` reformats can lose a key on iOS (seen with XCUITest's
-    `typeText`; normal typing keeps every key).
+  - Typing very fast into a field that `onChangeText` reformats keeps every key on iOS (since 2026-11-25, A93: JS's
+    value goes in with `replace(_:withText:)`). JS's reformat clears the field's own undo history, as before.
 - **Accessibility:**
   - A Pressable is one VoiceOver element: a button unless its role says otherwise. Disabled reads "dimmed"; a "Long
     press" action is offered while JS has a handler. With a control inside, the controls stay their own elements and
@@ -139,7 +139,9 @@ marked **gap**.
   - A role without a label only adds its trait; the children stay separate. A label from a signal that becomes
     undefined reads as if none was written. `accessibilityHidden` hides the whole subtree.
   - `testID` is the `accessibilityIdentifier`. A plain container with a `testID` becomes a container element
-    (XCUITest: `otherElements[id]`). Fields and NativeView carry it on their UIView.
+    (XCUITest: `otherElements[id]`). Fields carry it on their UIView; a NativeView's `testID` is a container element
+    around the plugin's view (as Android's testTag on the Box around it). `<NativeView testID pointerEvents>` compiles on
+    both since 2026-11-25 (A112).
   - A Pressable's accessibility frame includes its touch area (`hitSlop`, grown to the 44 pt minimum; Android: the
     layout bounds only).
   - With `accessibilityHidesBelow: true` on a see-through route (the TSX image viewer has it), VoiceOver skips the
@@ -214,7 +216,8 @@ marked **gap**.
     written: white and iOS's 10 pt (Android 24 dp).
   - `onDetentChange` fires when a drag rests on another detent; nothing on open, close or a spring back.
   - `<Sheet motion={m}>` gives `m.progress` each frame of the drag, the slides and the close, in the default UIKit
-    sheet. The `ZN_IOS_SHEET=swiftui` variant has none. Known issue: a fast flick close updates the progress in steps.
+    sheet, a fast flick close included (since 2026-11-25). On iOS it reaches 0 at the safe-area bottom (Android: the
+    screen bottom). The `ZN_IOS_SHEET=swiftui` variant has none.
 - **`<Svg>` filters:**
   - iOS runs the whole filter graph as Android 12+ does: blur, offset, flood, colour matrix, composite (including
     plus and Figma's inner shadow), all 16 blends, merge, SourceGraphic and SourceAlpha.
@@ -422,8 +425,8 @@ marked **gap**.
   `bun run ios:ui-test [--device <simulator>] [--only Class/test] [--dump <route>]`. A nightly CI run is added
   (`.github/workflows/ios-ui-tests-nightly.yml`, first run pending; a failed test runs again once). The test build is unsigned, so Keychain screens need an ad hoc signed
   build.
-- The UI test for the TSX viewer's double tap and pinch is off by default (about one run in four pages instead of
-  zooming on a busy simulator); `TEST_RUNNER_ZN_UI_ZOOM=1` turns it on.
+- The UI tests for the TSX viewer's double tap, pinch and a drag right after a zoom run by default (since 2026-11-25;
+  25 of 25 runs, 15 of 15 on a busy Mac).
 
 ### Different by design (not planned to change)
 These follow what iOS allows. They are not gaps:

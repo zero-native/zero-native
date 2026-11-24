@@ -71,6 +71,17 @@ final class ChecksLabTests: ZnUITestCase {
         status("under 1")
     }
 
+    /// The same with testID and pointerEvents on the NativeView itself (A112): the view is found by its own testID and
+    /// takes its tap; pointerEvents="none" on it lets the tap through to the Pressable under it.
+    func testNativeViewOwnTestIDAndPointerEvents() {
+        reveal(id("native-direct-id")).tap()
+        status("direct view event 1")
+        // The middle of the Pressable is under the native view.
+        reveal(id("under-direct")).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        status("under direct 1")
+        XCTAssertTrue(id("native-direct-none").exists, "the native view with pointerEvents none keeps its testID")
+    }
+
     /// An inverted List's dropped row shows at its new place once it lands: its cell is hidden while the drag preview
     /// flies there (ZnListReorder.drop) and must come back, also for a drop where it started. Read from the screen's
     /// pixels: the row's grey (#F1F5F9), not the list's white behind a hidden cell. (The preview itself, upright while
@@ -171,16 +182,5 @@ final class NextRtlTests: ZnUITestCase {
         reveal(s1)
         XCTAssertLessThan(s2.frame.midX, s1.frame.midX, "the layout isn't right to left")
         ChecksLabTests.nextGoesByRowOrder(self)
-    }
-
-    /// The same with testID and pointerEvents on the NativeView itself (A112): the view is found by its own testID and
-    /// takes its tap; pointerEvents="none" on it lets the tap through to the Pressable under it.
-    func testNativeViewOwnTestIDAndPointerEvents() {
-        reveal(id("native-direct-id")).tap()
-        status("direct view event 1")
-        // The middle of the Pressable is under the native view.
-        reveal(id("under-direct")).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-        status("under direct 1")
-        XCTAssertTrue(id("native-direct-none").exists, "the native view with pointerEvents none keeps its testID")
     }
 }
