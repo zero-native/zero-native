@@ -18,6 +18,13 @@ const channels = () =>
     ]),
   )
 
+// What the start-up calls answered, shown on the screen too (a phone check after a cold start from a notification reads
+// them there, with no console). Set by installPushLab, which main.ts runs before any screen.
+const initialPress = signal("waiting…") // Notifications.getInitialNotification
+const initialFcm = signal("waiting…") // Push.getInitialNotification
+const lastOpen = signal("-") // the last onPress / onNotificationOpenedApp while the app ran
+const clock = () => new Date().toTimeString().slice(0, 8)
+
 /**
  * The lab's tasks, named in main.ts so they exist on a start with no screen. A data message with `lab: "show"` shows a
  * notification from its own `title`, `body`, `link` and `group` keys: how a server-sent "custom notification" works.
@@ -63,11 +70,27 @@ export function installPushLab() {
   Push.onTokenRefresh(({ token }) => console.info(`push-lab token refreshed ${token.slice(0, 8)}`))
   Notifications.onDismiss((e) => console.info(`push-lab dismissed ${e.id} from=${e.data.from ?? "-"}`))
   // Taps on the app's own notifications that had no link (notifee's PRESS).
-  Notifications.onPress((n) => console.info(`push-lab pressed ${n.id} from=${n.data.from ?? "-"} txn=${n.data.txn ?? "-"}`))
-  void Notifications.getInitialNotification().then((n) => console.info(`push-lab initial press ${n ? `${n.id} from=${n.data.from ?? "-"}` : "none"}`))
+  Notifications.onPress((n) => {
+    const line = `pressed ${n.id} from=${n.data.from ?? "-"} txn=${n.data.txn ?? "-"}`
+    console.info(`push-lab ${line}`)
+    lastOpen.set(`${line} at ${clock()}`)
+  })
+  void Notifications.getInitialNotification().then((n) => {
+    const line = n ? `${n.id} from=${n.data.from ?? "-"}` : "none"
+    console.info(`push-lab initial press ${line}`)
+    initialPress.set(`${line} (answered at ${clock()})`)
+  })
   // Taps on notifications FCM showed itself (a `notification` block, app behind or closed).
-  void Push.getInitialNotification().then((m) => console.info(`push-lab initial ${m ? `lab=${m.data.lab ?? "-"}` : "none"}`))
-  Push.onNotificationOpenedApp((m) => console.info(`push-lab fcm opened lab=${m.data.lab ?? "-"}`))
+  void Push.getInitialNotification().then((m) => {
+    const line = m ? `lab=${m.data.lab ?? "-"}` : "none"
+    console.info(`push-lab initial ${line}`)
+    initialFcm.set(m ? `${line} ageMs=${Date.now() - m.sentAt} (answered at ${clock()})` : `none (answered at ${clock()})`)
+  })
+  Push.onNotificationOpenedApp((m) => {
+    const line = `fcm opened lab=${m.data.lab ?? "-"}`
+    console.info(`push-lab ${line}`)
+    lastOpen.set(`${line} ageMs=${Date.now() - m.sentAt} at ${clock()}`)
+  })
   // A button with no link. After a reply, show the same id again: Android shows a spinner until then.
   Notifications.onAction(async (e) => {
     console.info(`push-lab action ${e.actionId} on ${e.id} from=${e.data.from ?? "-"} input=${e.input ?? "-"}`)
@@ -157,6 +180,13 @@ export function PushLabScreen(props: { from?: string }) {
       <Column gap={10} style={{ padding: 16 }}>
         <PushLabLine text={`status: ${status()}`} />
         <PushLabLine text={`token: ${token() || "-"}`} />
+        <Text testID="push-initial-press" fontSize={13} color={scheme("#111111", "#EEEEEE")}>
+          {`initial press (Notifications): ${initialPress()}`}
+        </Text>
+        <Text testID="push-initial-fcm" fontSize={13} color={scheme("#111111", "#EEEEEE")}>
+          {`initial FCM (Push): ${initialFcm()}`}
+        </Text>
+        <PushLabLine text={`last opened: ${lastOpen()}`} />
         <PushLabButton label="Read status" onPress={() => void readStatus()} />
         <PushLabButton label="Ask permission" onPress={ask} />
         <PushLabButton label="Get token" onPress={() => void getToken()} />
