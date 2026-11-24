@@ -49,10 +49,19 @@ function lanAddresses(): string[] {
   return Object.values(networkInterfaces()).flat().filter((a) => a && a.family === "IPv4" && !a.internal).map((a) => a!.address)
 }
 
-/** This Mac's Bonjour name (`<LocalHostName>.local`), which a phone resolves on the same Wi-Fi. */
-function localName(): string {
+/** This Mac's Bonjour name (`<LocalHostName>.local`), which a phone resolves on the same Wi-Fi. Asked once, at start. */
+const LOCAL_NAME = (() => {
   const scutil = process.platform === "darwin" ? Bun.spawnSync(["scutil", "--get", "LocalHostName"]).stdout.toString().trim() : ""
   return `${scutil || hostname().replace(/\.local$/, "")}.local`
+})()
+
+/** Another name for this Mac than [h], for /redirect-other-host: localhost and 127.0.0.1 swap, the .local name goes
+ * to a LAN address, and a LAN address (or any other name) to the .local name. */
+function otherHost(h: string): string {
+  if (h === "localhost" || h === "[::1]") return "127.0.0.1"
+  if (h === "127.0.0.1") return "localhost"
+  if (h.toLowerCase().replace(/\.$/, "") === LOCAL_NAME.toLowerCase()) return lanAddresses()[0] ?? "127.0.0.1"
+  return LOCAL_NAME
 }
 
 /** The lab files: byte i is i % 251 (ios/tests/net makes the same). Written in 1 MB pieces; kept when the size is right. */
@@ -210,12 +219,10 @@ Bun.serve<WsData, never>({
       const n = Number(path.slice("/redirect/".length))
       return new Response(null, { status: 302, headers: { location: n > 1 ? `/redirect/${n - 1}` : "/json" } })
     }
-    // Same port, other host name: OkHttp must drop Authorization when the host changes. localhost goes to 127.0.0.1
-    // (and back); a LAN address (a phone) to this Mac's .local name.
+    // Same port, other host name: OkHttp must drop Authorization when the host changes (otherHost: localhost and
+    // 127.0.0.1 swap; a phone's LAN address goes to this Mac's .local name and back).
     if (path === "/redirect-other-host") {
-      const h = url.hostname
-      const other = h === "localhost" || h === "[::1]" ? "127.0.0.1" : h === "127.0.0.1" ? "localhost" : localName()
-      return new Response(null, { status: 302, headers: { location: `http://${other}:${HTTP_PORT}/auth` } })
+      return new Response(null, { status: 302, headers: { location: `http://${otherHost(url.hostname)}:${HTTP_PORT}/auth` } })
     }
     if (path === "/auth") return json({ authorization: req.headers.get("authorization") })
     // The image viewer lab (/dev/image-viewer): a picture only with the lab's header, else 401. Logs yes or no, not the value.
