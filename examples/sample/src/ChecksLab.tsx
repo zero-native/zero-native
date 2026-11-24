@@ -81,7 +81,7 @@ export function ChecksLabScreen() {
         </Row>
       </ChkSection>
 
-      <ChkSection title="b) Taps on 3D-turned views" note="A blue card turned 40° about Y and a field turned with it (camera 8), a teal card tilted 25° about X: each takes its taps where it is drawn.">
+      <ChkSection title="b) Taps on 3D-turned views" note="A blue card turned 40° about Y and a field turned with it (the default camera, 8), a teal card tilted 25° about X (camera 14): each takes its taps where it is drawn.">
         <Row style={{ gap: 16, justifyContent: "center", paddingVertical: 8 }}>
           <Pressable
             testID="turned-card"

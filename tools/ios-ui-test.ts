@@ -67,6 +67,12 @@ async function main() {
   const testOnly = process.argv.includes("--test-only")
   const derived = resolve(root, opt("--derived-data") ?? "ios/build/ui-test")
   const packages = opt("--packages")
+  // --repeat takes a count (a missing one would take the next flag as it).
+  const repeat = opt("--repeat")
+  if (process.argv.includes("--repeat") && !/^[1-9]\d*$/.test(repeat ?? "")) {
+    console.error("ios-ui-test: --repeat takes a count of 1 or more (--repeat 5)")
+    process.exit(2)
+  }
 
   if (!existsSync(join(root, "android/sample/src/main/assets/main.hbc"))) {
     throw new Error("no JS bundle (android/sample/src/main/assets/main.hbc). Run: bun run sample:js")
@@ -134,7 +140,7 @@ async function main() {
     const p = Bun.spawn(
       ["xcodebuild", "test-without-building", ...common, ...settings, "-resultBundlePath", result,
         "-parallel-testing-enabled", "NO", "-test-timeouts-enabled", "YES", "-maximum-test-execution-time-allowance", "120",
-        ...(opt("--repeat") ? ["-test-iterations", opt("--repeat")!] : []),
+        ...(repeat ? ["-test-iterations", repeat] : []),
         ...only],
       { cwd: root, stdout: "pipe", stderr: "pipe", env: { ...process.env, ...dumpEnv } },
     )

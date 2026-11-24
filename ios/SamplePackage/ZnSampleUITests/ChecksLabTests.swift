@@ -23,7 +23,7 @@ final class ChecksLabTests: ZnUITestCase {
     }
 
     /// A Pressable turned 40° about Y (the depth effect), one tilted about X, and a field turned with them: each takes a
-    /// tap at its drawn centre, and the field still focuses.
+    /// tap at its drawn centre, the turned card not a tap past its drawn far edge, and the field still focuses.
     func testTapsOn3DTurnedViews() {
         reveal(id("turned-card")).tap()
         status("turned 1")
@@ -32,6 +32,14 @@ final class ChecksLabTests: ZnUITestCase {
         // Near the turned card's far edge (drawn narrower than laid out): still the card.
         id("turned-card").coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.5)).tap()
         status("turned 2")
+        // Inside the laid-out 130 pt but past the drawn far edge (about 41 pt from the centre at 40° and camera 8: the
+        // laid-out edge is at 65): not the card. This tap fails if hit testing goes by the laid-out rect.
+        id("turned-card").coordinate(withNormalizedOffset: CGVector(dx: 0.06, dy: 0.5)).tap()
+        Thread.sleep(forTimeInterval: 0.6)
+        XCTAssertEqual(id("checks-status").label, "status: turned 2", "a tap outside the drawn card pressed it")
+        // The near edge is drawn wider than laid out (about 64 pt): a tap at 0.94 (57 pt) is still the card.
+        id("turned-card").coordinate(withNormalizedOffset: CGVector(dx: 0.94, dy: 0.5)).tap()
+        status("turned 3")
         reveal(id("turned-field")).tap()
         status("turned field focused")
     }

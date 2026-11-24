@@ -59,7 +59,8 @@ final class ZnAppDelegate: UIResponder, UIApplicationDelegate {
         if env["ZN_CONSOLE_FILE"] == "1" {
             let path = NSTemporaryDirectory() + "zn-console.log"
             if freopen(path, "a", stdout) != nil { setvbuf(stdout, nil, _IOLBF, 0) }
-            print("zn-sample: console to \(path)")
+            // Appended to: each launch (a --repeat run, a relaunch) starts with this line, its time and pid.
+            print("zn-sample: console to \(path), launch \(ISO8601DateFormatter().string(from: Date())) pid \(getpid())")
         }
         #endif
         // Plugins first, before the bundle runs (docs/plugins.md). PerfPlugin before the other Firebase plugins (it sets
