@@ -176,10 +176,12 @@ struct ZnNodeView: View {
         // Android (B4, 2026-11-12: they were at the top). A multiline one starts at the top.
         if s.type == Registry.Component.textField { return s.multiline ? .topLeading : .leading }
         guard s.type == Registry.Component.text else { return .topLeading }
+        // A Text in a taller box (height, minHeight, a stretch, flex) starts at the top, as Compose's BasicText and RN
+        // on both OSes (it was in the middle, 2026-11-24); textAlign moves it across.
         switch s.textAlign {
-        case Registry.TextAlign.center: return .center
-        case Registry.TextAlign.end: return .trailing
-        default: return .leading
+        case Registry.TextAlign.center: return .top
+        case Registry.TextAlign.end: return .topTrailing
+        default: return .topLeading
         }
     }
 

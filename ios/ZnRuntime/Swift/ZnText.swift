@@ -71,12 +71,14 @@ struct ZnTextView: View {
             max($0 * k - znUIFont(s.fontFamily, size: size, weight: s.fontWeight, italic: s.italic).lineHeight, 0)
         } ?? 0
         let selectable = s.selectableSlot >= 0 ? inst.slot(s.selectableSlot).value == .bool(true) : s.selectable
+        // numberOfLines={0} is React Native's "no limit" (SwiftUI's lineLimit(0) showed one line and "…").
+        let maxLines = znTextLineLimit(s.maxLines)
         // Auto-fit only with numberOfLines, as Android (without a line limit there is nothing to fit to).
-        let minScale = znTextMinScale(autoFit: s.adjustsFontSizeToFit, maxLines: s.maxLines, minimumFontScale: s.minimumFontScale)
+        let minScale = znTextMinScale(autoFit: s.adjustsFontSizeToFit, maxLines: maxLines, minimumFontScale: s.minimumFontScale)
         Text(attributed(value, spans: spans, color: color, size: size, kern: s.letterSpacingNow(inst).map { $0 * k }, k: k))
             .multilineTextAlignment(s.textAlign == Registry.TextAlign.center ? .center
                                     : s.textAlign == Registry.TextAlign.end ? .trailing : .leading)
-            .lineLimit(s.maxLines)
+            .lineLimit(maxLines)
             .minimumScaleFactor(minScale)
             .truncationMode(.tail)
             .lineSpacing(extra)
@@ -126,6 +128,12 @@ struct ZnTextView: View {
         }
         return out
     }
+}
+
+/// numberOfLines as a line limit: 0 or less is no limit (React Native's meaning of 0), nil when not written.
+func znTextLineLimit(_ n: Int?) -> Int? {
+    guard let n, n > 0 else { return nil }
+    return n
 }
 
 /// A Text slot's string as shown. A motion value shown as text (`v.format(...)`, "\u{0}f<id>|<format>") is its number

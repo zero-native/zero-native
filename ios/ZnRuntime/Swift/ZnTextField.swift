@@ -48,6 +48,56 @@ struct ZnFieldLook: Equatable {
     var placeholder: String
     /// accessibilityLabel (also from a slot); nil: VoiceOver reads the placeholder, as before.
     var label: String? = nil
+    /// letterSpacing and lineHeight (also from slots), not yet scaled by the phone's text size.
+    var letterSpacing: CGFloat? = nil
+    var lineHeight: CGFloat? = nil
+}
+
+/// letterSpacing, textDecorationLine (with its style) and, on a multiline field, lineHeight and textAlign as UIKit text
+/// attributes, as Android's field draws its text and its placeholder with the text style (ZnTextField.kt:
+/// effectiveTextStyle). Sizes scaled by the phone's text size. A single line leaves lineHeight out: Compose trims it
+/// off a lone line. Equatable, so a field sets them again only when they change (that lays the text out again).
+struct ZnFieldExtras: Equatable {
+    var kern: CGFloat?
+    var line = Registry.TextDecorationLine.none
+    var lineStyle = Registry.TextDecorationStyle.solid
+    /// Line spacing added to the font's own line height (what lineHeight is more, as a Text's), multiline only.
+    var spacing: CGFloat = 0
+    /// textAlign, multiline only (a UITextField has its own textAlignment).
+    var align = NSTextAlignment.left
+
+    @MainActor init(_ s: ZnNodeSpec, _ look: ZnFieldLook, font: UIFont, k: CGFloat, multiline: Bool) {
+        kern = look.letterSpacing.map { $0 * k }
+        line = s.decorationLine
+        lineStyle = s.decorationStyle
+        if multiline {
+            spacing = look.lineHeight.map { max($0 * k - font.lineHeight, 0) } ?? 0
+            align = s.textAlign == Registry.TextAlign.center ? .center : s.textAlign == Registry.TextAlign.end ? .right : .left
+        }
+    }
+
+    /// The attributes, each key always there (0 when not written), so one that went away is taken off again.
+    var attributes: [NSAttributedString.Key: Any] {
+        let pattern: NSUnderlineStyle = switch lineStyle {
+        case Registry.TextDecorationStyle.dashed: .patternDash
+        case Registry.TextDecorationStyle.dotted: .patternDot
+        default: []
+        }
+        let style = NSUnderlineStyle.single.union(pattern).rawValue
+        return [
+            .kern: kern ?? 0,
+            .underlineStyle: line == Registry.TextDecorationLine.underline ? style : 0,
+            .strikethroughStyle: line == Registry.TextDecorationLine.lineThrough ? style : 0,
+        ]
+    }
+
+    /// The multiline field's paragraph style: its alignment and line spacing.
+    var paragraph: NSParagraphStyle {
+        let p = NSMutableParagraphStyle()
+        p.alignment = align
+        p.lineSpacing = spacing
+        return p
+    }
 }
 
 /// The field's font: fontFamily, fontWeight and italic, its size scaled by the phone's text size and capped by
@@ -107,7 +157,8 @@ private func znApplyInputTraits(_ v: UIView, _ s: ZnNodeSpec) {
     let editable = s.editableSlot >= 0 ? inst.slot(s.editableSlot).value != .bool(false) : s.editable
     let color = s.colorSlot >= 0 ? (znColor(inst.slot(s.colorSlot).value) ?? .black) : (s.color ?? .black)
     let placeholder = s.placeholderSlot >= 0 ? znDisplay(inst.slot(s.placeholderSlot).value) : (s.placeholder ?? "")
-    return ZnFieldLook(editable: editable, color: color, placeholder: placeholder, label: s.accessibilityLabelNow(inst))
+    return ZnFieldLook(editable: editable, color: color, placeholder: placeholder, label: s.accessibilityLabelNow(inst),
+                       letterSpacing: s.letterSpacingNow(inst), lineHeight: s.lineHeightNow(inst))
 }
 
 /// A tap anywhere in a field's box (its padding, the rest of a minHeight) focuses the field, as on Android, where
@@ -141,17 +192,47 @@ enum ZnFieldFocus {
     /// The boxes of the fields in [window] under [point] (window coordinates), with the view controller each is in: a
     /// Pressable around a field leaves the touch to it (ZnTouchControl.hitTest). A tappable Text with span links puts
     /// its frame here too ("text:" keys, ZnTextLinkPress), and so does a Switch or Checkbox ("toggle:", ZnToggleTap).
+    /// A box counts only where it shows: one scrolled out of its Scroll or List (clipped there), or on a hidden tab (its
+    /// marker hides), took the taps of the Pressables drawn there instead (a fixed Pay button over a form's next fields;
+    /// a card on one tab where another tab's search field was; 2026-11-24).
     static func boxes(at point: CGPoint, in window: UIWindow) -> [(frame: CGRect, controller: UIViewController?)] {
         boxes.values.compactMap { w in
-            guard let v = w.view, v.window === window, !v.isHidden else { return nil }
-            let f = v.convert(v.bounds, to: window)
-            return f.contains(point) ? (f, znNearestController(v)) : nil
+            guard let v = w.view, v.window === window, !v.isHidden, znShows(v, v.bounds, at: point, upTo: nil) else { return nil }
+            return (v.convert(v.bounds, to: window), znNearestController(v))
         }
     }
 
     static func focus(_ inst: ZnInstance, _ node: Int) {
         guard let v = views[key(inst, node)]?.view, !v.isFirstResponder else { return }
         v.becomeFirstResponder()
+    }
+
+    /// returnKeyType "next": focuses the field after [field] on its screen, as Compose's default for ImeAction.Next
+    /// (focus moves on and the keyboard stays up). After means in reading order: the next line down, or further right
+    /// on the same line. Fields that can't take focus are passed over: not editable, under pointerEvents "none", on a
+    /// hidden tab, or not in the window (a List's row out of view, not composed on Android either). False when there is
+    /// none: the keyboard then closes, as before.
+    static func focusNext(after field: UIView) -> Bool {
+        guard let window = field.window else { return false }
+        let screen = znNearestController(field)
+        let me = field.convert(field.bounds, to: window)
+        // a before b: a higher line, or the same line (their middles within half the smaller height) and further left.
+        func before(_ a: CGRect, _ b: CGRect) -> Bool {
+            abs(a.midY - b.midY) < min(a.height, b.height) / 2 ? a.minX < b.minX : a.midY < b.midY
+        }
+        let after = views.compactMap { (key, w) -> (UIView, CGRect)? in
+            guard let v = w.view, v !== field, v.window === window, !v.isHidden, v.isUserInteractionEnabled,
+                  boxes[key]?.view?.isHidden != true, znNearestController(v) === screen else { return nil }
+            if let t = v as? UITextView, !t.isEditable { return nil }
+            let f = v.convert(v.bounds, to: window)
+            return before(me, f) ? (v, f) : nil
+        }.sorted { before($0.1, $1.1) }
+        // A field that says no (editable={false} refuses in textFieldShouldBeginEditing): the one after it.
+        for (v, _) in after where v.becomeFirstResponder() {
+            print("zn t=\(ZnDebug.ms()) field: next → the field at y \(Int(v.convert(v.bounds, to: window).minY))")
+            return true
+        }
+        return false
     }
 
     /// After this run of the main loop: scrolls the focused field's box into view, animated. On focus (another field
@@ -252,6 +333,8 @@ struct ZnFieldBoxTap: ViewModifier {
 }
 
 /// An empty UIView the size of a field's box: where the box is, for scrolling it into view (ZnFieldFocus.reveal).
+/// Hidden under pointerEvents "none" ([off]) and on a kept, hidden tab (znInHiddenTab, as a Pressable's touch view):
+/// hidden boxes take no Pressable's taps (ZnFieldFocus.boxes) and their fields get no "next" focus.
 struct ZnFieldBoxMarker: UIViewRepresentable {
     let key: String
     var off = false
@@ -267,7 +350,8 @@ struct ZnFieldBoxMarker: UIViewRepresentable {
     }
 
     func updateUIView(_ v: UIView, context: Context) {
-        v.isHidden = off  // hidden boxes are left out of ZnFieldFocus.boxes(at:)
+        let hidden = off || context.environment.znInHiddenTab
+        if v.isHidden != hidden { v.isHidden = hidden }  // hidden boxes are left out of ZnFieldFocus.boxes(at:)
         ZnFieldFocus.registerBox(v, key)
     }
 }
@@ -327,18 +411,24 @@ struct ZnUIKitField: UIViewRepresentable {
         if f.font != font { f.font = font; f.invalidateIntrinsicContentSize() }
         znFieldTouch(f, off: context.environment.znTouchOff)
         znApplyA11y(f, s, label: look.label)
+        let extras = ZnFieldExtras(s, look, font: font, k: s.textScale(context.environment.dynamicTypeSize), multiline: false)
         // Only on a change: setting it again relays the field out (an empty placeholder is nil). In placeholderColor
-        // and the field's font, as Android draws it with the field's text style.
+        // and the field's font, letterSpacing and decoration, as Android draws it with the field's text style.
         let placeholder = look.placeholder.isEmpty ? nil : look.placeholder
         let pColor = znPlaceholderColor(s)
-        if c.placeholder?.0 != placeholder || c.placeholder?.1 != pColor || c.placeholder?.2 != font {
-            c.placeholder = (placeholder, pColor, font)
+        if c.placeholder?.0 != placeholder || c.placeholder?.1 != pColor || c.placeholder?.2 != font || c.placeholder?.3 != extras {
+            c.placeholder = (placeholder, pColor, font, extras)
             f.attributedPlaceholder = placeholder.map {
-                NSAttributedString(string: $0, attributes: [.foregroundColor: pColor, .font: font])
+                NSAttributedString(string: $0, attributes: extras.attributes.merging([.foregroundColor: pColor, .font: font]) { $1 })
             }
         }
         let color = UIColor(look.color)
         if f.textColor != color { f.textColor = color }
+        // letterSpacing and textDecorationLine on the typed text (the field's default attributes: every character).
+        if c.extras != extras {
+            c.extras = extras
+            f.defaultTextAttributes.merge(extras.attributes) { $1 }
+        }
         f.isSecureTextEntry = s.secure
         f.keyboardType = znKeyboard(s.keyboardType)
         znApplyInputTraits(f, s)
@@ -373,8 +463,10 @@ struct ZnUIKitField: UIViewRepresentable {
         var s: ZnNodeSpec?
         var state: ZnFieldState?
         var editable = true
-        /// The placeholder last set: text, colour, font.
-        var placeholder: (String?, UIColor, UIFont)?
+        /// The placeholder last set: text, colour, font, letterSpacing and decoration.
+        var placeholder: (String?, UIColor, UIFont, ZnFieldExtras)?
+        /// letterSpacing and decoration last set on the text.
+        var extras: ZnFieldExtras?
 
         @objc func changed(_ f: UITextField) {
             guard let s, let state, s.onChangeText != 0 else { return }
@@ -412,6 +504,9 @@ struct ZnUIKitField: UIViewRepresentable {
         }
         func textFieldShouldReturn(_ f: UITextField) -> Bool {
             if let s, s.onSubmitEditing != 0 { send(s.onSubmitEditing, f.text ?? "") }
+            // "next": the next field takes focus and the keyboard stays up (it went down and, when JS focused the next
+            // field in onSubmitEditing, up again: a bounce). Any other key, or no next field: the keyboard closes.
+            if s?.returnKeyType == Registry.ReturnKeyType.next, ZnFieldFocus.focusNext(after: f) { return true }
             f.resignFirstResponder()
             return true
         }
@@ -446,8 +541,13 @@ struct ZnSwiftUIField: View {
         case .words: .words
         case .characters: .characters
         }
+        let pattern: Text.LineStyle.Pattern = s.decorationStyle == Registry.TextDecorationStyle.dashed ? .dash
+            : s.decorationStyle == Registry.TextDecorationStyle.dotted ? .dot : .solid
         field
             .font(znFont(s.fontFamily, size: max(s.fontSize, 0) * s.textScale(typeSize), weight: s.fontWeight, italic: s.italic))
+            .kerning((look.letterSpacing ?? 0) * s.textScale(typeSize))
+            .underline(s.decorationLine == Registry.TextDecorationLine.underline, pattern: pattern)
+            .strikethrough(s.decorationLine == Registry.TextDecorationLine.lineThrough, pattern: pattern)
             .foregroundStyle(look.color)
             .znFieldA11y(s, label: look.label)
             .tint(s.selectionColor)
@@ -478,9 +578,49 @@ struct ZnSwiftUIField: View {
 
 // MARK: - UIKit, multiline: UITextView
 
+/// A multiline field's UITextView. It scrolls only while its text is taller than its box (maxHeight, a height, all its
+/// parent has), as Compose's BasicTextField under a max height: before, it never scrolled and its lower lines drew over
+/// the views below the box (ZeroBill's review box and chat input, 2026-11-24). While it fits, scrolling stays off, so
+/// a drag on it scrolls the screen and the field grows with its text.
+final class ZnFieldTextView: UITextView {
+    /// The size the scroll was last decided for; nil: decide again (the text changed).
+    private var checked: CGSize?
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // layoutSubviews runs on every frame of a scroll too: decide only for a new size or new text.
+        if checked != bounds.size { znCheckScroll() }
+    }
+
+    /// The text changed: decide again at the next layout.
+    func znTextChanged() {
+        checked = nil
+        setNeedsLayout()
+    }
+
+    private func znCheckScroll() {
+        guard bounds.width > 0, bounds.height > 0 else { return }
+        checked = bounds.size
+        let fit = sizeThatFits(CGSize(width: bounds.width, height: .greatestFiniteMagnitude)).height
+        let scrolls = fit > bounds.height + 0.5
+        guard scrolls != isScrollEnabled else { return }
+        isScrollEnabled = scrolls
+        if scrolls {
+            // The cursor stays in sight, as Compose keeps it (typing at the end scrolls on by itself).
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.isFirstResponder else { return }
+                self.scrollRangeToVisible(self.selectedRange)
+            }
+        } else if contentOffset != .zero {
+            contentOffset = .zero
+        }
+    }
+}
+
 /// A multiline <TextField>: same protocol as the single-line one. Return makes a new line, unless the field sets
-/// returnKeyType: then Return is the keyboard's action and sends onSubmitEditing (as on Android). It grows with its
-/// text; minHeight / height from the style still apply.
+/// returnKeyType: then Return is the keyboard's action and sends onSubmitEditing (as on Android), and "next" moves to
+/// the next field. It grows with its text; minHeight / height from the style still apply, and at maxHeight (or the
+/// height it is offered) it stops growing and scrolls inside (ZnFieldTextView).
 struct ZnUIKitTextView: UIViewRepresentable {
     let ctx: ZnContext
     let s: ZnNodeSpec
@@ -491,13 +631,13 @@ struct ZnUIKitTextView: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
-    func makeUIView(context: Context) -> UITextView {
-        let v = UITextView()
+    func makeUIView(context: Context) -> ZnFieldTextView {
+        let v = ZnFieldTextView()
         v.delegate = context.coordinator
         v.backgroundColor = .clear
         v.textContainerInset = .zero
         v.textContainer.lineFragmentPadding = 0
-        v.isScrollEnabled = false  // grows with its text
+        v.isScrollEnabled = false  // grows with its text (scrolls when it is taller than its box: ZnFieldTextView)
         let placeholder = UILabel()
         placeholder.numberOfLines = 0
         placeholder.translatesAutoresizingMaskIntoConstraints = false
@@ -514,14 +654,18 @@ struct ZnUIKitTextView: UIViewRepresentable {
         return v
     }
 
-    func sizeThatFits(_ proposal: ProposedViewSize, uiView v: UITextView, context: Context) -> CGSize? {
+    /// Its text's height, but no more than the height offered (maxHeight caps the offer: ZnMinMaxLayout), never less
+    /// than one line. Taller text then scrolls inside (ZnFieldTextView).
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView v: ZnFieldTextView, context: Context) -> CGSize? {
         let width = proposal.width ?? 200
         let fit = v.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
         let line = v.font?.lineHeight ?? 17
-        return CGSize(width: width, height: max(fit.height, line))
+        var height = max(fit.height, line)
+        if let offered = proposal.height, offered.isFinite, offered < height { height = max(offered, line) }
+        return CGSize(width: width, height: height)
     }
 
-    func updateUIView(_ v: UITextView, context: Context) {
+    func updateUIView(_ v: ZnFieldTextView, context: Context) {
         let c = context.coordinator
         c.send = { [ctx, inst] event, text in ctx.send(inst.id, event, text.map(ZnPayload.string) ?? .none) }
         c.focusChanged = { [ctx, inst, s] focused in if s.ref != 0 { ctx.send(inst.id, s.ref, .bool(focused)) } }
@@ -549,9 +693,21 @@ struct ZnUIKitTextView: UIViewRepresentable {
         let hint = znContentType(s.autoComplete)
         if v.textContentType != hint { v.textContentType = hint }
         v.returnKeyType = znReturnKey(s.returnKeyType) ?? .default
-        if c.placeholder?.text != look.placeholder { c.placeholder?.text = look.placeholder }
-        c.placeholder?.font = font
-        c.placeholder?.textColor = znPlaceholderColor(s)
+        // letterSpacing, decoration, lineHeight and textAlign, on the text and the placeholder (as Android's style).
+        let extras = ZnFieldExtras(s, look, font: font, k: s.textScale(context.environment.dynamicTypeSize), multiline: true)
+        let pColor = znPlaceholderColor(s)
+        if c.placeholderLook?.0 != look.placeholder || c.placeholderLook?.1 != font || c.placeholderLook?.2 != pColor
+            || c.placeholderLook?.3 != extras {
+            c.placeholderLook = (look.placeholder, font, pColor, extras)
+            c.placeholder?.attributedText = NSAttributedString(string: look.placeholder, attributes: extras.attributes.merging(
+                [.font: font, .foregroundColor: pColor, .paragraphStyle: extras.paragraph]) { $1 })
+        }
+        if c.extras != extras {
+            c.extras = extras
+            c.applyExtras(v)
+            v.invalidateIntrinsicContentSize()  // line spacing changes the height
+            v.znTextChanged()
+        }
         defer { c.placeholder?.isHidden = !v.text.isEmpty }
 
         guard raw != c.lastRaw else { return }
@@ -561,6 +717,9 @@ struct ZnUIKitTextView: UIViewRepresentable {
         guard value != v.text, v.markedTextRange == nil else { return }
         let fromEnd = v.selectedTextRange.map { v.offset(from: $0.end, to: v.endOfDocument) } ?? 0
         v.text = value
+        c.applyExtras(v)  // a new text has only the font and colour
+        v.invalidateIntrinsicContentSize()
+        v.znTextChanged()
         if let p = v.position(from: v.endOfDocument, offset: -min(fromEnd, value.count)) {
             v.selectedTextRange = v.textRange(from: p, to: p)
         }
@@ -575,9 +734,26 @@ struct ZnUIKitTextView: UIViewRepresentable {
         var state: ZnFieldState?
         var editable = true
         weak var placeholder: UILabel?
+        /// The placeholder's look last set: text, font, colour, letterSpacing and the rest.
+        var placeholderLook: (String, UIFont, UIColor, ZnFieldExtras)?
+        /// letterSpacing, decoration, lineHeight and textAlign last set.
+        var extras: ZnFieldExtras?
+
+        /// [extras] on every character and on what is typed next. Not while an IME composes (its marked text).
+        func applyExtras(_ v: UITextView) {
+            guard let extras, v.markedTextRange == nil else { return }
+            let a = extras.attributes.merging([.paragraphStyle: extras.paragraph]) { $1 }
+            if v.textStorage.length > 0 { v.textStorage.addAttributes(a, range: NSRange(location: 0, length: v.textStorage.length)) }
+            v.typingAttributes.merge(a) { $1 }
+        }
 
         func textViewDidChange(_ v: UITextView) {
             placeholder?.isHidden = !v.text.isEmpty
+            (v as? ZnFieldTextView)?.znTextChanged()
+            // UIKit's typing attributes go back to the font and colour when the text is emptied.
+            if v.text.isEmpty { applyExtras(v) }
+            // Scrolling on, a UITextView no longer tells SwiftUI that its height changed: measure it again.
+            v.invalidateIntrinsicContentSize()
             guard let s, let state, s.onChangeText != 0, v.markedTextRange == nil else { return }
             state.seq += 1
             send(s.onChangeText, "\(state.seq)\u{1}\(v.text ?? "")")
@@ -588,6 +764,8 @@ struct ZnUIKitTextView: UIViewRepresentable {
             guard editable else { return false }
             if text == "\n", s.returnKeyType >= 0 {  // Return is the keyboard's action, not a new line
                 if s.onSubmitEditing != 0 { send(s.onSubmitEditing, v.text) }
+                // "next": the next field takes focus and the keyboard stays up, as the one-line field.
+                if s.returnKeyType == Registry.ReturnKeyType.next, ZnFieldFocus.focusNext(after: v) { return false }
                 v.resignFirstResponder()
                 return false
             }
