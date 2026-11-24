@@ -1,0 +1,66 @@
+# The iOS sample's UI tests (XCUITest, ios/SamplePackage/ZnSampleUITests), every night and by hand: `bun run
+# ios:ui-test` builds the package sample and its test bundle (Debug, not signed), boots the first iPhone simulator on
+# the newest iOS, runs every test and prints one line per test (tools/ios-ui-test.ts). Nightly rather than on every
+# pull request (about 6 minutes on a warm Mac, more on a runner) until it has been green for a while (Pavan,
+# 2026-11-24). When it fails, the test log and the .xcresult (screenshots, the accessibility tree at each failure)
+# are kept for a week. Nothing here needs a secret, as in ci.yml.
+name: iOS UI tests (nightly)
+
+on:
+  schedule:
+    - cron: "30 21 * * *"  # 03:00 in India, every night
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-ui-tests-nightly
+  cancel-in-progress: false
+
+jobs:
+  ui-tests:
+    # Forks don't run the nightly; anyone can still start it by hand.
+    if: github.event_name != 'schedule' || github.repository == 'zero-native/zero-native'
+    runs-on: macos-15
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use the newest Xcode 26
+        run: |
+          xcode=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$xcode" ]; then echo "No Xcode 26 on this runner"; ls -d /Applications/Xcode*.app; exit 1; fi
+          sudo xcode-select -s "$xcode/Contents/Developer"
+          xcodebuild -version
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      # The sample's JS bundle: the package sample copies it in (the UI test tool stops without it).
+      - run: bun run sample:js
+      # The package uses the local release Hermes when it is there (Package.swift), as ci.yml's package build. Same
+      # cache key as ci.yml, so a run on main finds what CI kept.
+      - uses: actions/cache@v4
+        with:
+          path: ios/third_party/hermes/release
+          key: hermes-apple-release-${{ hashFiles('tools/fetch-hermes-apple.ts') }}
+      - run: bun run tools/fetch-hermes-apple.ts release
+      # firebase-ios-sdk and lottie-spm checkouts, kept between runs (the same cache as ci.yml's package build).
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/spm
+          key: spm-${{ hashFiles('ios/packages/*/Package.swift', 'ios/SamplePackage/**/Package.resolved') }}
+      - name: Simulators on this runner (for the log)
+        run: xcrun simctl list devices available | grep -E "^-- iOS|iPhone" || true
+      - name: UI tests
+        run: bun run ios:ui-test --packages "$RUNNER_TEMP/spm" --derived-data ios/build/ui-test
+      - name: Keep the test log and results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ui-test-results
+          path: |
+            ios/build/ui-test/ui-test.log
+            ios/build/ui-test/ZnSampleUITests.xcresult
+          if-no-files-found: ignore
+          retention-days: 7
