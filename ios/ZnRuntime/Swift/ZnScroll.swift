@@ -60,6 +60,11 @@ struct ZnScrollView<Content: View>: View {
             // "none" or not written: never, as RN and Android (SwiftUI's .automatic depends on where it is).
             .scrollDismissesKeyboard(keyboard == .onDrag ? .immediately : keyboard == .interactive ? .interactively : .never)
             .modifier(ZnSnapModifier(on: s.hasSnap, driver: driver))
+            // A SwiftUI ScrollView next to the safe area scrolls its content on under the status bar (and over a
+            // <StatusBar backgroundColor> strip) and the home indicator. Clipped to its frame, as Compose's
+            // verticalScroll in a screen padded by its safe sides (ZnList: contentInsetAdjustmentBehavior .never).
+            // A route with safeArea off on a side lays the Scroll out under that bar, so it still draws there.
+            .clipped()
         }
     }
 }
