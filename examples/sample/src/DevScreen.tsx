@@ -111,6 +111,7 @@ export function DevScreen() {
           <Entry title="Shared elements" step="r4" detail="sharedTag over push, modal, fade, secure, see-through and none routes; the edge swipe scrubs the flight" onOpen={() => nav.push("sharedLab")} />
           <Entry title="Push at start" step="r4" detail="A start screen that pushes the shared lab while it is built (open it with --route navStartLab for the real start)" onOpen={() => nav.push("navStartLab", { then: "sharedLab" })} />
           <Entry title="Navigation race" step="polish" detail="A push or back while a slide or a back swipe is under way; logs nav-race <ok>/<all>" onOpen={() => nav.push("navRaceLab")} />
+          <Entry title="Modal drag" step="r7" detail="Drag a modal route down to close it: plain, with a list, wants Back, secure, see-through" onOpen={() => nav.push("modalDragLab")} />
           <Entry title="Touch" step="polish" detail="Who takes a tap where Pressables, scrolls and overlays meet" onOpen={() => nav.push("touchLab")} />
           <Entry title="Paint" step="polish" detail="A rounded Pressable's clip, opacity as one picture, elevation without a background" onOpen={() => nav.push("paintLab")} />
           <Entry title="Text polish" step="polish" detail="Multiline maxHeight, Next between fields, a Text in a tall box, field letterSpacing, numberOfLines 0" onOpen={() => nav.push("textPolishLab")} />

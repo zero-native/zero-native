@@ -80,6 +80,7 @@ import { NavRaceLabScreen, NavRaceTargetScreen } from "./NavRaceLab"
 import { TouchFixLabScreen } from "./TouchFixLab"
 import { ChecksLabScreen, ChecksSnapLabScreen } from "./ChecksLab"
 import { ScrollWinsLabScreen, ScrollWinsLongLabScreen, ScrollWinsSheetLabScreen } from "./ScrollWinsLab"
+import { ModalDragLabScreen, ModalDragPageScreen, ModalDragSeeThroughScreen } from "./ModalDragLab"
 
 export const routes = defineRoutes({
   home: { path: "/", screen: HomeScreen },
@@ -231,6 +232,12 @@ export const routes = defineRoutes({
   scrollWinsLab: { path: "/dev/gestures/scroll-wins", screen: ScrollWinsLabScreen, deepLink: true },
   scrollWinsLongLab: { path: "/dev/gestures/scroll-wins/long", screen: ScrollWinsLongLabScreen, deepLink: true },
   scrollWinsSheetLab: { path: "/dev/gestures/scroll-wins/sheet", screen: ScrollWinsSheetLabScreen, deepLink: true },
+  // Drag down to close a "modal" route on iOS (ModalDragLab.tsx; UI test ModalDragTests): plain, with a list, a page that
+  // wants Back, secure and see-through. Last, as above.
+  modalDragLab: { path: "/dev/nav/modal-drag", screen: ModalDragLabScreen, deepLink: true },
+  modalDragPage: { path: "/dev/nav/modal-drag/page", screen: ModalDragPageScreen, transition: "modal", restore: false },
+  modalDragSecure: { path: "/dev/nav/modal-drag/secure", screen: ModalDragPageScreen, transition: "modal", secure: true, restore: false },
+  modalDragSeeThrough: { path: "/dev/nav/modal-drag/see-through", screen: ModalDragSeeThroughScreen, transparent: true, transition: "modal", safeArea: "none", restore: false },
 })
 
 // Typed navigation: nav.push("amount", { merchantId }) is checked against these routes.
