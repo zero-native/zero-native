@@ -20,6 +20,8 @@
 //   ZN_MEDIA_FAKE_CAMERA  1: Media.takePhoto answers with a drawn photo where there is no camera (the simulator) (debug)
 //   ZN_FETCH_LOG     1: log what a fetch observer hears as each call ends (the Perf plugin's network traces) (debug)
 //   ZN_CONSOLE_FILE  1: the console also to tmp/zn-console.log in the app's data container (a UI test run) (debug)
+//   ZN_STATUSBAR_LOG 1: log the status bar's style and hidden as iOS has them, at each change (a simulator's bar may
+//                    not redraw in screenshots) (debug)
 import UIKit
 import notify
 #if canImport(ZnRuntime)  // an app on the Swift package; the CMake build compiles everything into the app
@@ -61,6 +63,26 @@ final class ZnAppDelegate: UIResponder, UIApplicationDelegate {
             if freopen(path, "a", stdout) != nil { setvbuf(stdout, nil, _IOLBF, 0) }
             // Appended to: each launch (a --repeat run, a relaunch) starts with this line, its time and pid.
             print("zn-sample: console to \(path), launch \(ISO8601DateFormatter().string(from: Date())) pid \(getpid())")
+        }
+        // ZN_STATUSBAR_LOG=1: what the window scene's status bar manager says, every change (checked 4 times a second).
+        if env["ZN_STATUSBAR_LOG"] == "1" {
+            var last = ""
+            Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in
+                MainActor.assumeIsolated {
+                    guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                          let m = scene.statusBarManager else { return }
+                    let style = [UIStatusBarStyle.default: "default", .lightContent: "light", .darkContent: "dark"][m.statusBarStyle] ?? "?"
+                    // The controllers iOS asks, from the window's root down its childForStatusBarStyle chain.
+                    var chain: [String] = []
+                    var vc = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController
+                    while let c = vc, chain.count < 8 {
+                        chain.append("\(type(of: c))(\(c.preferredStatusBarStyle.rawValue),\(c.prefersStatusBarHidden))")
+                        vc = c.childForStatusBarStyle
+                    }
+                    let now = "style \(style), hidden \(m.isStatusBarHidden), height \(m.statusBarFrame.height); asks \(chain.joined(separator: " > "))"
+                    if now != last { last = now; print("zn-sample: status bar \(now)") }
+                }
+            }
         }
         #endif
         // Plugins first, before the bundle runs (docs/plugins.md). PerfPlugin before the other Firebase plugins (it sets

@@ -68,6 +68,10 @@ final class ZnScreenController: UIHostingController<ZnEntryScreen> {
     }
     /// <StatusBar hidden>.
     override var prefersStatusBarHidden: Bool { ZnSystemBars.shared.merged(entry, navigation: false)?.hidden == true }
+    /// This controller answers, not the child UIHostingController hands on (a plain UIViewController: default style,
+    /// shown), which made iOS ignore <StatusBar barStyle> and hidden (found 2026-11-24 with ZN_STATUSBAR_LOG).
+    override var childForStatusBarStyle: UIViewController? { nil }
+    override var childForStatusBarHidden: UIViewController? { nil }
 }
 
 // MARK: - SwiftUI: NavigationStack(path:)
