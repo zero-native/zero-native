@@ -114,6 +114,11 @@ const EXPECT: Record<string, Frame> = {
   // 47. A Scroll with only maxHeight is as tall as its content, up to the max (ZeroBill's checkout offers sheet: iOS
   // took the whole 400, 2026-11-09).
   c47a: [0, 0, 200, 30], c47b: [0, 30, 200, 100],
+  // 48. A Column raised by minWidth (its width not definite) stretches its children to the raised width, as Yoga does,
+  // and no wider (rule 4). ZeroBill's notification badge: a flexGrow pill in an absolute ring with minWidth 18 and
+  // padding 2 (iOS left the pill 0 wide, 2026-11-24); and a plain child with no width in a minWidth 80 Column.
+  // RN's results; Android to check (A102).
+  c48a: [18, 0, 18, 18], c48b: [2, 2, 14, 14], c48c: [0, 0, 80, 10],
 }
 
 const TOLERANCE = 1
@@ -478,6 +483,18 @@ export function LayoutLabScreen() {
             <Scroll testID="c47b" onLayout={L("c47b")} style={{ maxHeight: 100, backgroundColor: B }}>
               <Box style={{ height: 150 }} />
             </Scroll>
+          </Column>
+        </Case>
+        <Case title="48. minWidth raises a Column: its children stretch to it">
+          <Column alignItems="flex-start" style={{ width: 200, backgroundColor: BG }}>
+            <Stack style={{ width: 36, height: 36 }}>
+              <Box testID="c48a" onLayout={L("c48a")} style={{ position: "absolute", top: 0, end: 0, height: 18, minWidth: 18, padding: 2, backgroundColor: A }}>
+                <Box testID="c48b" onLayout={L("c48b")} style={{ flexGrow: 1, height: 14, backgroundColor: B }} />
+              </Box>
+            </Stack>
+            <Column style={{ minWidth: 80, backgroundColor: A }}>
+              <Box testID="c48c" onLayout={L("c48c")} style={{ height: 10, backgroundColor: B }} />
+            </Column>
           </Column>
         </Case>
         <Case title="36. wrap: alignItems stretch">

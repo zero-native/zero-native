@@ -10,6 +10,9 @@
 import SwiftUI
 
 struct ZnFlexKey: LayoutValueKey { static let defaultValue: CGFloat = 0 }
+/// A stretching child of a Column whose width isn't definite but is raised by minWidth: offered max(its own width, the
+/// min), so it fills the raised box without pushing it wider (Yoga's stretch to the final width; ZnRenderer flex()).
+struct ZnMinStretchKey: LayoutValueKey { static let defaultValue = false }
 struct ZnAlignSelfKey: LayoutValueKey { static let defaultValue: Int = -1 }
 /// A percent width / height (fractions; zn flex rule 5): the parent offers that much of its content box, and the
 /// child fills what it is offered. Resolved by the parent, as a re-proposal at placement must not take it again.
@@ -55,6 +58,14 @@ struct ZnFlexLayout: Layout {
         return v
     }
 
+    /// The cross size offered to one child: the container's, or for a ZnMinStretchKey child max(its own width, minWidth).
+    private func crossFor(_ sv: LayoutSubview, main: CGFloat?, _ crossAvail: CGFloat?) -> CGFloat? {
+        guard vertical, sv[ZnMinStretchKey.self] else { return crossAvail }
+        // Its own width as content-sized (no cross offer), kept within what the container has (text still wraps).
+        let own = sv.sizeThatFits(offer(main: main, cross: nil)).width
+        return max(min(own, crossAvail ?? own), minWidth)
+    }
+
     private func measure(_ proposal: ProposedViewSize, _ subviews: Subviews) -> Measured {
         let mainAvail = Self.bounded(vertical ? proposal.height : proposal.width)
         let crossAvail = Self.bounded(vertical ? proposal.width : proposal.height)
@@ -68,7 +79,8 @@ struct ZnFlexLayout: Layout {
             let left = mainAvail.map { max(0, $0 - used) }
             let pc = sv[ZnPercentKey.self]
             let pm = vertical ? pc.height : pc.width
-            let s = sv.sizeThatFits(znPercentOffer(sv, offer(main: pm != nil ? mainAvail : left, cross: crossAvail)))
+            let mainOffer = pm != nil ? mainAvail : left
+            let s = sv.sizeThatFits(znPercentOffer(sv, offer(main: mainOffer, cross: crossFor(sv, main: mainOffer, crossAvail))))
             sizes[i] = s
             used += main(s)
         }
@@ -78,7 +90,7 @@ struct ZnFlexLayout: Layout {
                 let w = sv[ZnFlexKey.self]
                 guard w > 0 else { continue }
                 let m = free * w / weights
-                let s = sv.sizeThatFits(offer(main: m, cross: crossAvail))
+                let s = sv.sizeThatFits(offer(main: m, cross: crossFor(sv, main: m, crossAvail)))
                 sizes[i] = vertical ? CGSize(width: s.width, height: m) : CGSize(width: m, height: s.height)
                 used += m
             }

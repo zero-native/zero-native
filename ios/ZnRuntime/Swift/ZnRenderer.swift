@@ -289,15 +289,21 @@ struct ZnNodeView: View {
         let flexes = znSlotFlexes(refs)
         let stretchAll = s.alignItems == -1 || s.alignItems == Registry.AlignItems.stretch
         let (minW, minH) = innerMin(s)
+        // A Column whose width isn't definite but is raised by minWidth: its stretching children fill the raised width
+        // (Yoga stretches to the box's final width; ZeroBill's badge, a flexGrow pill in an absolute ring with
+        // minWidth 18, came out narrow on iOS, 2026-11-24). They never push it wider than the min (rule 4).
+        let raised = vertical && !(definiteWidth || s.hasWidth) && minW > 0
         return ZnFlexLayout(vertical: vertical, justify: s.justify, alignItems: s.alignItems, gap: s.gapNow(inst),
                             definiteWidth: definiteWidth || s.hasWidth, definiteHeight: definiteHeight,
                             minWidth: minW, minHeight: minH) {
             ForEach(refs) { ref in
                 let child = ref.t.nodes[ref.node]
                 let flex = flexes[ref.id] ?? child.flex
-                let (outer, childDefinite) = childLayout(s, child, flex: flex, vertical: vertical, stretchAll: stretchAll)
+                let (outer, childDefinite) = childLayout(s, child, flex: flex, vertical: vertical, stretchAll: stretchAll,
+                                                         raisedWidth: raised)
                 ZnNodeView(ctx: ctx, t: ref.t, inst: ref.inst, n: ref.node, outer: outer, definiteWidth: childDefinite)
                     .layoutValue(key: ZnFlexKey.self, value: flex)
+                    .layoutValue(key: ZnMinStretchKey.self, value: raised && outer.fillWidth)
                     .layoutValue(key: ZnAlignSelfKey.self, value: child.alignSelf)
                     .zIndex(child.zIndex ?? 0)  // R23: a row with zIndex draws its tooltip over the rows after it
             }
@@ -342,12 +348,16 @@ struct ZnNodeView: View {
 
     /// What a Column / Row tells one child: what to fill, and whether its width is definite.
     /// [flex] is the child's flex now (a slot's value, or the template's). A size from a slot counts as set.
-    private func childLayout(_ s: ZnNodeSpec, _ child: ZnNodeSpec, flex: CGFloat, vertical: Bool, stretchAll: Bool) -> (ZnOuter, Bool) {
+    /// [raisedWidth]: the Column's width isn't definite but minWidth raises it; a stretching child then fills the raised
+    /// width (ZnFlexLayout offers it max(its own width, the min): ZnMinStretchKey).
+    private func childLayout(_ s: ZnNodeSpec, _ child: ZnNodeSpec, flex: CGFloat, vertical: Bool, stretchAll: Bool,
+                             raisedWidth: Bool = false) -> (ZnOuter, Bool) {
         let selfStretch = child.alignSelf == -1 || child.alignSelf == Registry.AlignSelf.stretch
         if vertical {
-            // zn flex rule 4: a Column stretches children without a width only when its own width is definite.
+            // zn flex rule 4: a Column stretches children without a width only when its own width is definite, or
+            // raised by its minWidth (to that width only, layout conformance case 48).
             // alignSelf stretch stretches even when alignItems doesn't (RN; layout conformance case 19).
-            let stretched = (definiteWidth || s.hasWidth) && !child.hasWidth && child.type != Registry.Component.spacer &&
+            let stretched = (definiteWidth || s.hasWidth || raisedWidth) && !child.hasWidth && child.type != Registry.Component.spacer &&
                 (child.alignSelf == Registry.AlignSelf.stretch || (stretchAll && selfStretch))
             return (ZnOuter(fillWidth: stretched, fillHeight: flex > 0), stretched || child.hasWidth)
         }

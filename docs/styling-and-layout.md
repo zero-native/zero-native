@@ -120,7 +120,9 @@ These follow React Native wherever Compose and SwiftUI make it cheap, and say so
    width (`fillMaxWidth`), **but only when the Column's own width is definite** (set by a width prop, shared out by
    `flex` in a Row, or itself stretched by its parent). A Column that shrinks to its content (for example inside an
    `alignItems: 'center'` parent) doesn't stretch its children, so a stretch never pushes a shrink-wrapped parent wider
-   (step 1.3: a cashback badge wrongly went full width). **In `Row`, stretch only applies when the Row has a fixed height**; otherwise it behaves as
+   (step 1.3: a cashback badge wrongly went full width). **A Column raised by `minWidth`** (its width not otherwise
+   definite) stretches those children to the raised width and no wider, as Yoga does (since 2026-11-24, layout
+   conformance case 48: a `flexGrow` pill in a badge ring with `minWidth: 18`). **In `Row`, stretch only applies when the Row has a fixed height**; otherwise it behaves as
    `flex-start`, because stretching to an unknown height needs intrinsic measurement, which is slow. This is a known
    difference from RN, listed in `docs/platform-differences.md`.
    **`alignSelf: 'stretch'` stretches whatever the parent's `alignItems` is** (since 2026-11-08, A11-1), as in RN: in a
