@@ -4,7 +4,8 @@
 // one way only: src → fallbackSrc (if any) → an empty box; never back to src (on Android the two once swapped
 // forever). contentScale cover (default) / contain / fill; tintColor draws the picture's shape in one colour; RN
 // onLoad { source: { width, height, uri } } (pixels), onError { error }, and onLoadEnd after either, for src only.
-// loading="shimmer" shimmers the box until the picture is in. `zn://file/<name>` handles (a file a plugin made, as a
+// loading="shimmer" shimmers the box until the picture is in. A picture that wasn't in memory fades in over 150 ms
+// (Coil's crossfade on Android); one in memory shows at once, in the same frame as a src change. `zn://file/<name>` handles (a file a plugin made, as a
 // scanned page) load from ZnHandles.fileDir; other `zn://` kinds (Android's app icons) are not on iOS.
 //
 // Shimmer: a base colour with a lighter band sweeping across, every Shimmer on screen in step (one shared clock,
@@ -179,7 +180,8 @@ struct ZnImageView: View {
     let inst: ZnInstance
 
     private enum Stage: Equatable { case src, fallback, none }
-    private struct Loaded: Equatable { let src: String?; let stage: Stage; let image: UIImage? }
+    /// [fade]: the picture wasn't in memory, so it fades in (Android: Coil's 150 ms crossfade, never for a memory hit).
+    private struct Loaded: Equatable { let src: String?; let stage: Stage; let image: UIImage?; var fade = false }
 
     @State private var loaded = Loaded(src: nil, stage: .none, image: nil)
 
@@ -187,12 +189,15 @@ struct ZnImageView: View {
         let _ = ZnDebug.hit(name: "ImageLeaf", inst: inst, node: s.index)
         let src = s.srcSlot >= 0 ? inst.slot(s.srcSlot).value.string : s.src
         let tint = s.tintColorSlot >= 0 ? znColor(inst.slot(s.tintColorSlot).value) : s.tintColor
-        // A new src starts again (a reused row); what is shown belongs to this src only.
-        let image = loaded.src == src ? loaded.image : nil
+        // A new src starts again (a reused row); what is shown belongs to this src only. A src already in memory shows
+        // in this same frame, as Coil draws a memory hit at once (the load below still sends its onLoad): before, a
+        // changed src showed an empty box until the load ran.
+        let image = loaded.src == src ? loaded.image : src.flatMap(Self.inMemory)
+        let fade = loaded.src == src && loaded.fade
         let waiting = image == nil && (loaded.src != src || loaded.stage != .none)
         ZnPictureBox {
             if let image {
-                picture(image, tint: tint)
+                picture(image, tint: tint).modifier(ZnImageFadeIn(on: fade))
             } else if waiting && s.loading == Registry.Loading.shimmer {
                 ZnShimmerView(s: s)
             } else {
@@ -201,6 +206,11 @@ struct ZnImageView: View {
         }
         .clipped()
         .task(id: src) { await load(src) }
+    }
+
+    /// [src]'s picture if it is in memory now (the src only, not its fallback).
+    @MainActor private static func inMemory(_ src: String) -> UIImage? {
+        znImageURL(src).flatMap { ZnImageCache.shared.cached($0) }
     }
 
     @ViewBuilder
@@ -219,6 +229,13 @@ struct ZnImageView: View {
         var stage: Stage = src != nil ? .src : fallback != nil ? .fallback : .none
         while stage != .none {
             let which = stage == .src ? src! : fallback!
+            // In memory: shown at once with no fade (body may show it already), never an empty box in between.
+            if let url = znImageURL(which), let hit = ZnImageCache.shared.cached(url) {
+                if !url.isFileURL { ZnImagePreload.shared.onScreen(which) }
+                loaded = Loaded(src: src, stage: stage, image: hit)
+                if stage == .src { sendLoad(hit, src: which) }
+                return
+            }
             loaded = Loaded(src: src, stage: stage, image: nil)
             do {
                 guard let url = znImageURL(which) else { throw ZnImageError("this kind of src is not supported on iOS yet: \(which)") }
@@ -226,7 +243,7 @@ struct ZnImageView: View {
                 if !url.isFileURL { ZnImagePreload.shared.onScreen(which) }
                 let image = try await ZnImageCache.shared.load(url)
                 if Task.isCancelled { return }
-                loaded = Loaded(src: src, stage: stage, image: image)
+                loaded = Loaded(src: src, stage: stage, image: image, fade: true)
                 if stage == .src { sendLoad(image, src: which) }
                 return
             } catch {
@@ -258,6 +275,24 @@ struct ZnImageView: View {
             if s.onError != 0, let json = ZnModules.json(["error": message]) { ctx.send(id, s.onError, .string(json)) }
             if s.onLoadEnd != 0 { ctx.send(id, s.onLoadEnd, .none) }
         }
+    }
+}
+
+/// A picture that wasn't in memory (from the disk, the network or a file) fades in over 150 ms, linear, as Coil's
+/// crossfade on Android (ZnFetch.kt IMAGE_FADE_MS); one from memory shows at once. With animations off (Reduce Motion)
+/// it shows at once too. A new picture in the box starts its own fade: the box shows nothing or the shimmer between two
+/// pictures that aren't in memory, so this view is made again.
+struct ZnImageFadeIn: ViewModifier {
+    let on: Bool
+    @State private var shown = false
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(on && !shown ? 0 : 1)
+            .onAppear {
+                guard on, !shown else { return }
+                if znAnimationsOff() { shown = true } else { withAnimation(.linear(duration: 0.15)) { shown = true } }
+            }
     }
 }
 
