@@ -14,9 +14,12 @@
 // adjustsFontSizeToFit with numberOfLines (registry 23): the text shrinks to fit its box in those lines, down to
 // minimumFontScale (0.5 when not written, kept within 0.01...1), then ends in "…", as Android's TextAutoSize.
 // iOS differences: includeFontPadding is Android-only (ignored). lineHeight adds the difference to the font's own
-// line height as line spacing (RN on iOS places the extra space differently: above each line). selectable copies the
-// whole text: SwiftUI's Text can't select a range on iOS (Android shows handles for a range). Auto-fit shrinks
-// smoothly, not in Android's 0.5 sp steps.
+// line height as line spacing (RN on iOS places the extra space differently: above each line), so N lines are the
+// font's height + (N - 1) × lineHeight, as Compose's trimmed default; a lineHeight below the font's own is ignored
+// (Android tightens the lines: SwiftUI's lineSpacing can't go below 0, and iOS 26's exact lineHeight cut the last
+// line's descenders off, 2026-11-24). letterSpacing is drawn as Android's, half on each side of each letter
+// (znLetterSpacingEnds), so spaced labels stay centred. selectable copies the whole text: SwiftUI's Text can't select
+// a range on iOS (Android shows handles for a range). Auto-fit shrinks smoothly, not in Android's 0.5 sp steps.
 import SwiftUI
 import UIKit
 
@@ -75,13 +78,17 @@ struct ZnTextView: View {
         let maxLines = znTextLineLimit(s.maxLines)
         // Auto-fit only with numberOfLines, as Android (without a line limit there is nothing to fit to).
         let minScale = znTextMinScale(autoFit: s.adjustsFontSizeToFit, maxLines: maxLines, minimumFontScale: s.minimumFontScale)
-        Text(attributed(value, spans: spans, color: color, size: size, kern: s.letterSpacingNow(inst).map { $0 * k }, k: k))
+        var text = attributed(value, spans: spans, color: color, size: size, kern: s.letterSpacingNow(inst).map { $0 * k }, k: k)
+        let pads = znLetterSpacingEnds(&text)
+        Text(text)
             .multilineTextAlignment(s.textAlign == Registry.TextAlign.center ? .center
                                     : s.textAlign == Registry.TextAlign.end ? .trailing : .leading)
             .lineLimit(maxLines)
             .minimumScaleFactor(minScale)
             .truncationMode(.tail)
             .lineSpacing(extra)
+            .padding(.leading, pads.lead)
+            .padding(.trailing, pads.trail)
             .modifier(ZnTextSelect(on: selectable && s.onPress == 0 && s.onLongPress == 0))
             .modifier(ZnTextPress(ctx: ctx, s: s, inst: inst, selectable: selectable))
             .accessibilityHidden(merged && s.isMergedText)
@@ -128,6 +135,44 @@ struct ZnTextView: View {
         }
         return out
     }
+}
+
+/// letterSpacing as Android draws it: half the spacing before each letter and half after (Minikin), so a spaced label
+/// stays centred in its pill. iOS's kern puts all of it after each letter, the last one too, so centred text sat half a
+/// spacing to the left. Here the kern after the last letter of the text, and after the last letter before a space or a
+/// line break, is taken off (the space after that letter gets it instead, so words keep their gap, and a line that
+/// breaks there ends at its letter: the space hangs past the line's end); the Text is padded by half the spacing on
+/// each side, so its width stays what it was (as Android's). Positive spacing only: a negative one (tight headings) is
+/// left as it was. Returns the padding for the start and the end.
+func znLetterSpacingEnds(_ a: inout AttributedString) -> (lead: CGFloat, trail: CGFloat) {
+    // Most Texts have no letterSpacing: nothing to do (one look along the runs).
+    guard a.runs.contains(where: { ($0.kern ?? 0) > 0 }) else { return (0, 0) }
+    // Each character's kern and kind, read once; the changes are made afterwards by offset (a change may move indices).
+    var kerns: [CGFloat] = [], spaces: [Bool] = [], breaks: [Bool] = []
+    var i = a.startIndex
+    while i < a.endIndex {
+        let next = a.characters.index(after: i)
+        let ch = a.characters[i]
+        kerns.append(a[i..<next].kern ?? 0)
+        spaces.append(ch.isWhitespace)
+        breaks.append(ch.isNewline)
+        i = next
+    }
+    guard let first = kerns.first, let last = kerns.last else { return (0, 0) }
+    var changes: [(at: Int, kern: CGFloat)] = []
+    for n in kerns.indices where kerns[n] > 0 && !spaces[n] {
+        if n == kerns.count - 1 {
+            changes.append((n, 0))
+        } else if spaces[n + 1] {
+            changes.append((n, 0))
+            if !breaks[n + 1] { changes.append((n + 1, kerns[n + 1] + kerns[n])) }
+        }
+    }
+    for c in changes {
+        let at = a.characters.index(a.startIndex, offsetBy: c.at)
+        a[at..<a.characters.index(after: at)].kern = c.kern
+    }
+    return (max(first, 0) / 2, spaces.last == true ? 0 : max(last, 0) / 2)
 }
 
 /// A Text slot's string as shown. A motion value shown as text (`v.format(...)`, "\u{0}f<id>|<format>") is its number
