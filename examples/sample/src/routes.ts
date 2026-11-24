@@ -75,7 +75,6 @@ import { ElementValuesLabScreen } from "./ElementValuesLab"
 import { ListsTwoLabScreen } from "./ListsTwoLab"
 import { NavStartLabScreen, SharedLabDetailScreen, SharedLabScreen, SharedLabSeeThroughScreen } from "./SharedLab"
 import { PaintLabScreen } from "./PaintLab"
-import { TextPolishLabScreen } from "./TextPolishLab"
 import { TextPolishLabScreen, TextPolishLinesLabScreen } from "./TextPolishLab"
 import { NavRaceLabScreen, NavRaceTargetScreen } from "./NavRaceLab"
 
