@@ -51,7 +51,9 @@ ZnPlugins.register(ImageViewerPlugin())
 The same route line. The TSX screen needs the motion engine (Motion 1) on iOS. What is different on iOS:
 - There is no Back button: the viewer closes with its close button or a drag up or down. A swipe from the left edge
   pages back, as in Photos (on the first picture it does nothing). `nav.back()` from the app closes it at once and the
-  promise gives null, as on Android.
+  promise gives null (checked on iOS by the UI test; the same JS on Android).
+- Until the start photo has loaded (at most 0.4 s) the viewer is see-through. A touch then is taken by the viewer's
+  layers, as on Android, but the close button only answers once it shows (on Android it answers while invisible too).
 - `content://` links are Android's: they show the error. `file://` must be inside the app's own folder (its container).
 - The sharp part when zoomed comes from ImageIO (rows or tiles of the original) instead of `BitmapRegionDecoder`; PNG and
   TIFF over 12 MP are read every nth pixel, other formats only up to 12 MP, and GIF gets none ("Memory").
@@ -196,7 +198,9 @@ adb shell am broadcast -a dev.zeronative.imageviewer.DEBUG_GESTURE --es kind pin
 
 On iOS: `bun run tools/ios-unit-test.ts plugins/image-viewer` (the page's rules, loading and sharp parts on the Mac),
 `bun run ios:ui-test --only ImageViewerTests` (the TSX screen from the lab, found as VoiceOver finds it: the close button,
-"Photo n of count", paging, the answer, the error's retry, the app's words), and the same lab on a simulator
+"Photo n of count", paging, the answer, the error's retry by its load count, the app's words, the app's own
+`nav.back()`, taps stopped by an invisible layer; a double tap and a pinch keeping the page with
+`TEST_RUNNER_ZN_UI_ZOOM=1`, off by default as about one run in four still pages), and the same lab on a simulator
 (`bun run tools/ios-sample.ts --route imageViewerLab`; "Header" needs `bun run tools/fetch-test-server.ts`, no reverse).
 
 ## Not built
