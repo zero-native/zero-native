@@ -24,6 +24,8 @@ const initialPress = signal("waiting…") // Notifications.getInitialNotificatio
 const initialFcm = signal("waiting…") // Push.getInitialNotification
 const lastOpen = signal("-") // the last onPress / onNotificationOpenedApp while the app ran
 const clock = () => new Date().toTimeString().slice(0, 8)
+// How old a message is in ms, or "-" when it has no sent time (Android's PushRules.sentAt gives 0 then).
+const age = (sentAt: number) => (sentAt > 0 ? String(Date.now() - sentAt) : "-")
 
 /**
  * The lab's tasks, named in main.ts so they exist on a start with no screen. A data message with `lab: "show"` shows a
@@ -35,7 +37,7 @@ const clock = () => new Date().toTimeString().slice(0, 8)
 export function installPushLab() {
   Push.onMessage(async (m, signal) => {
     const d = m.data
-    console.info(`push-lab message lab=${d.lab ?? "-"} inFront=${m.inFront} priority=${m.priority} deleted=${m.deleted ?? false} notification=${m.notification != null} ageMs=${Date.now() - m.sentAt}`)
+    console.info(`push-lab message lab=${d.lab ?? "-"} inFront=${m.inFront} priority=${m.priority} deleted=${m.deleted ?? false} notification=${m.notification != null} ageMs=${age(m.sentAt)}`)
     if (d.lab === "slow") {
       const ms = Number(d.ms ?? "20000")
       const finished = await new Promise<boolean>((resolve) => {
@@ -84,12 +86,12 @@ export function installPushLab() {
   void Push.getInitialNotification().then((m) => {
     const line = m ? `lab=${m.data.lab ?? "-"}` : "none"
     console.info(`push-lab initial ${line}`)
-    initialFcm.set(m ? `${line} ageMs=${Date.now() - m.sentAt} (answered at ${clock()})` : `none (answered at ${clock()})`)
+    initialFcm.set(m ? `${line} ageMs=${age(m.sentAt)} (answered at ${clock()})` : `none (answered at ${clock()})`)
   })
   Push.onNotificationOpenedApp((m) => {
     const line = `fcm opened lab=${m.data.lab ?? "-"}`
     console.info(`push-lab ${line}`)
-    lastOpen.set(`${line} ageMs=${Date.now() - m.sentAt} at ${clock()}`)
+    lastOpen.set(`${line} ageMs=${age(m.sentAt)} at ${clock()}`)
   })
   // A button with no link. After a reply, show the same id again: Android shows a spinner until then.
   Notifications.onAction(async (e) => {
