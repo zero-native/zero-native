@@ -7,7 +7,9 @@
 //   c) A NativeView in a Box with a testID, and one in a Box with pointerEvents="none" over a Pressable: the tap goes
 //      to the Pressable. (The compiler takes only name, props, onEvent and style on <NativeView> itself, though its
 //      type allows testID and pointerEvents: so a wrapper.)
-import { Box, Column, NativeView, Pressable, Row, Scroll, Stack, Text, TextField } from "@zeronative/ui"
+//   d) Reorder in a sideways List (chips of different widths) and in an inverted List with rows of mixed heights: long
+//      press, drag, drop; each onReorder is logged ("checks-lab reorder ...") and shown in the status.
+import { Box, Column, List, NativeView, Pressable, Row, Scroll, Stack, Text, TextField } from "@zeronative/ui"
 import { signal, useMotion } from "@zeronative/core"
 import { c } from "./tokens"
 
@@ -38,6 +40,21 @@ export function ChecksLabScreen() {
   const tiltTaps = signal(0)
   const underTaps = signal(0)
   const viewEvents = signal(0)
+  const chips = signal(["Chai", "Groceries", "Rent", "Fuel and tolls", "Gym", "Books"])
+  const rows = signal([
+    { id: "r1", h: 44, name: "Row 1 (44)" },
+    { id: "r2", h: 100, name: "Row 2 (100)" },
+    { id: "r3", h: 60, name: "Row 3 (60)" },
+    { id: "r4", h: 120, name: "Row 4 (120)" },
+    { id: "r5", h: 44, name: "Row 5 (44)" },
+    { id: "r6", h: 80, name: "Row 6 (80)" },
+  ])
+  function moved<T>(list: T[], from: number, to: number): T[] {
+    const next = list.slice()
+    const [hit] = next.splice(from, 1)
+    if (hit !== undefined) next.splice(to, 0, hit)
+    return next
+  }
   return (
     <Scroll style={{ flex: 1, gap: 14, backgroundColor: c.bg }} contentContainerStyle={{ padding: 16 }}>
       <Text fontSize={20} fontWeight={700} color={c.ink}>
@@ -101,6 +118,43 @@ export function ChecksLabScreen() {
             <NativeView name="device.fake-view" props={{ label: "pointerEvents none" }} onEvent={() => say("view none got an event")} style={{ flex: 1 }} />
           </Box>
         </Stack>
+      </ChkSection>
+
+      <ChkSection title="d) Reorder: sideways, inverted, mixed heights" note="Long press a chip or a row, drag it, let go: it lands where the gap is, and the order line says so. The inverted list's first row is at the bottom.">
+        <Text testID="chips-order" fontSize={12} color={c.ink}>
+          {`chips: ${chips().join(", ")}`}
+        </Text>
+        <List
+          testID="chips-list"
+          data={chips()}
+          key={(t) => t}
+          horizontal
+          reorderable
+          onReorder={(from, to) => { chips.set(moved(chips(), from, to)); say(`reorder chips ${from} → ${to}`) }}
+          style={{ height: 52 }}
+          row={(t) => (
+            <Box style={{ height: 40, marginEnd: 8, paddingHorizontal: 14, borderRadius: 20, backgroundColor: c.pillBg, justifyContent: "center" }}>
+              <Text fontSize={13} fontWeight={600} color={c.ink}>{t}</Text>
+            </Box>
+          )}
+        />
+        <Text testID="rows-order" fontSize={12} color={c.ink}>
+          {`rows: ${rows().map((r) => r.id).join(", ")}`}
+        </Text>
+        <List
+          testID="rows-list"
+          data={rows()}
+          key={(r) => r.id}
+          inverted
+          reorderable
+          onReorder={(from, to) => { rows.set(moved(rows(), from, to)); say(`reorder rows ${from} → ${to}`) }}
+          style={{ height: 320, borderRadius: 10, borderWidth: 1, borderColor: c.border }}
+          row={(r) => (
+            <Box style={{ height: r.h, marginVertical: 3, marginHorizontal: 8, paddingHorizontal: 12, borderRadius: 8, backgroundColor: r.h > 70 ? "#DBEAFE" : c.pillBg, justifyContent: "center" }}>
+              <Text fontSize={13} fontWeight={600} color={c.ink}>{r.name}</Text>
+            </Box>
+          )}
+        />
       </ChkSection>
     </Scroll>
   )
