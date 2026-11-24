@@ -114,3 +114,28 @@ struct ZnSystemFont: Equatable {
     var weight: Int? = nil
     var condensed = false
 }
+
+/// letterSpacing as Android draws it (Minikin: half the spacing before each character and half after), from iOS's kern,
+/// which puts all of it after each character (ZnText.swift znLetterSpacingEnds applies this). Given each character's
+/// kern and whether it is a space or a line break: the kerns to change (by character offset) and the padding for the
+/// Text's start and end.
+/// - The kern after a character is its half after plus the next one's half before (the same for even spacing; between
+///   spans with different spacing it is the mean). The first character's half before is the start padding and the
+///   last one's half after the end padding, so the Text is as wide as Android's and centred.
+/// - A letter before a space or a line break gives its kern to the space, so a line that breaks there ends at its
+///   letter and words keep their gap; before a line break it is dropped. A line broken inside a word (CJK, a long
+///   word, after "-") still ends with that kern.
+/// A negative kern (tight headings) stays after its character, as iOS draws it, with no padding.
+func znLetterSpacingPlan(kerns: [CGFloat], spaces: [Bool], breaks: [Bool]) -> (changes: [(at: Int, kern: CGFloat)], lead: CGFloat, trail: CGFloat) {
+    guard !kerns.isEmpty, spaces.count == kerns.count, breaks.count == kerns.count else { return ([], 0, 0) }
+    let last = kerns.count - 1
+    func before(_ n: Int) -> CGFloat { kerns[n] > 0 ? kerns[n] / 2 : 0 }
+    func after(_ n: Int) -> CGFloat { kerns[n] > 0 ? kerns[n] / 2 : kerns[n] }
+    var now = kerns.indices.map { n in n < last ? after(n) + before(n + 1) : (kerns[n] > 0 ? 0 : kerns[n]) }
+    for n in 0..<last where now[n] > 0 && !spaces[n] && spaces[n + 1] {
+        if !breaks[n + 1] { now[n + 1] += now[n] }
+        now[n] = 0
+    }
+    let changes = kerns.indices.filter { now[$0] != kerns[$0] }.map { (at: $0, kern: now[$0]) }
+    return (changes, before(0), kerns[last] > 0 ? kerns[last] / 2 : 0)
+}

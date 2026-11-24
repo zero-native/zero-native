@@ -130,5 +130,40 @@ if let r = weights["Inconsolata-Regular.ttf"], let sb = weights["Inconsolata-Sem
     check("black heavier than semibold", black > sb, true)
 }
 
+// letterSpacing as Android draws it (znLetterSpacingPlan): the kerns to change, and the start and end padding. The
+// kerns plus the padding always add up to what iOS drew before (the Text keeps its width).
+func spacing(_ text: String, _ k: [CGFloat]) -> (changes: [String], lead: CGFloat, trail: CGFloat, total: CGFloat) {
+    let chars = Array(text)
+    let p = znLetterSpacingPlan(kerns: k, spaces: chars.map(\.isWhitespace), breaks: chars.map(\.isNewline))
+    var now = k
+    for c in p.changes { now[c.at] = c.kern }
+    return (p.changes.map { "\($0.at):\($0.kern)" }, p.lead, p.trail, now.reduce(0, +) + p.lead + p.trail)
+}
+let words = spacing("AB CD", [2, 2, 2, 2, 2])
+check("words: changes", words.changes, ["1:0.0", "2:4.0", "4:0.0"])
+check("words: pads", [words.lead, words.trail], [1, 1])
+check("words: width kept", words.total, 10)
+let lines = spacing("AB\nCD", [2, 2, 2, 2, 2])
+check("line break: the letter before it loses its kern, the break keeps its own", lines.changes, ["1:0.0", "4:0.0"])
+let endSpace = spacing("AB ", [2, 2, 2])
+check("a space at the end keeps its letter's kern", endSpace.changes, ["1:0.0"])
+check("a space at the end: pads", [endSpace.lead, endSpace.trail], [1, 1])
+check("a space at the end: width kept", endSpace.total, 6)
+let one = spacing("A", [4])
+check("one letter", one.changes, ["0:0.0"])
+check("one letter: pads", [one.lead, one.trail], [2, 2])
+let spans = spacing("AB CD", [2, 2, 2, 0, 0])
+check("a span without spacing after a spaced one", spans.changes, ["1:0.0", "2:3.0"])
+check("a span without spacing: width as Android's (3 spaced characters)", spans.total, 6)
+let mixed = spacing("ABCD", [2, 2, 4, 4])
+check("spans with different spacing: the mean between them", mixed.changes, ["1:3.0", "3:0.0"])
+check("spans with different spacing: pads", [mixed.lead, mixed.trail], [1, 2])
+check("a span without spacing: no end padding", [spans.lead, spans.trail], [1, 0])
+let negative = spacing("AB", [-1, -1])
+check("negative spacing is left as it is", negative.changes, [])
+check("negative spacing: no padding", [negative.lead, negative.trail], [0, 0])
+check("no text", spacing("", []).changes, [])
+check("plain text", spacing("AB", [0, 0]).changes, [])
+
 print("\(count - failures)/\(count) text checks passed")
 exit(failures == 0 ? 0 : 1)

@@ -139,40 +139,43 @@ struct ZnTextView: View {
 
 /// letterSpacing as Android draws it: half the spacing before each letter and half after (Minikin), so a spaced label
 /// stays centred in its pill. iOS's kern puts all of it after each letter, the last one too, so centred text sat half a
-/// spacing to the left. Here the kern after the last letter of the text, and after the last letter before a space or a
-/// line break, is taken off (the space after that letter gets it instead, so words keep their gap, and a line that
-/// breaks there ends at its letter: the space hangs past the line's end); the Text is padded by half the spacing on
-/// each side, so its width stays what it was (as Android's). Positive spacing only: a negative one (tight headings) is
-/// left as it was. Returns the padding for the start and the end.
+/// spacing to the left. The kerns to change and the Text's padding (half the spacing on each side, so it is as wide as
+/// before) are znLetterSpacingPlan's (ZnFontRules.swift, checked on the Mac in ios/tests/text). Linear in the text's
+/// length: one walk along the characters, and the changed letters set in one new string made of the old one's pieces.
+/// Returns the padding for the start and the end.
 func znLetterSpacingEnds(_ a: inout AttributedString) -> (lead: CGFloat, trail: CGFloat) {
     // Most Texts have no letterSpacing: nothing to do (one look along the runs).
     guard a.runs.contains(where: { ($0.kern ?? 0) > 0 }) else { return (0, 0) }
-    // Each character's kern and kind, read once; the changes are made afterwards by offset (a change may move indices).
-    var kerns: [CGFloat] = [], spaces: [Bool] = [], breaks: [Bool] = []
+    // Each character's start, kern and kind, read once (the runs are walked beside the characters).
+    var starts: [AttributedString.Index] = [], kerns: [CGFloat] = [], spaces: [Bool] = [], breaks: [Bool] = []
+    var runs = a.runs.makeIterator()
+    var run = runs.next()
     var i = a.startIndex
     while i < a.endIndex {
-        let next = a.characters.index(after: i)
+        while let r = run, r.range.upperBound <= i { run = runs.next() }
         let ch = a.characters[i]
-        kerns.append(a[i..<next].kern ?? 0)
+        starts.append(i)
+        kerns.append(run?.kern ?? 0)
         spaces.append(ch.isWhitespace)
         breaks.append(ch.isNewline)
-        i = next
+        i = a.characters.index(after: i)
     }
-    guard let first = kerns.first, let last = kerns.last else { return (0, 0) }
-    var changes: [(at: Int, kern: CGFloat)] = []
-    for n in kerns.indices where kerns[n] > 0 && !spaces[n] {
-        if n == kerns.count - 1 {
-            changes.append((n, 0))
-        } else if spaces[n + 1] {
-            changes.append((n, 0))
-            if !breaks[n + 1] { changes.append((n + 1, kerns[n + 1] + kerns[n])) }
-        }
+    let plan = znLetterSpacingPlan(kerns: kerns, spaces: spaces, breaks: breaks)
+    guard !plan.changes.isEmpty else { return (plan.lead, plan.trail) }
+    // The old string isn't changed while it is read, so its indices stay good.
+    var out = AttributedString()
+    var from = a.startIndex
+    for c in plan.changes {
+        let at = starts[c.at], end = c.at + 1 < starts.count ? starts[c.at + 1] : a.endIndex
+        out.append(a[from..<at])
+        var one = AttributedString(a[at..<end])
+        one.kern = c.kern
+        out.append(one)
+        from = end
     }
-    for c in changes {
-        let at = a.characters.index(a.startIndex, offsetBy: c.at)
-        a[at..<a.characters.index(after: at)].kern = c.kern
-    }
-    return (max(first, 0) / 2, spaces.last == true ? 0 : max(last, 0) / 2)
+    out.append(a[from..<a.endIndex])
+    a = out
+    return (plan.lead, plan.trail)
 }
 
 /// A Text slot's string as shown. A motion value shown as text (`v.format(...)`, "\u{0}f<id>|<format>") is its number
