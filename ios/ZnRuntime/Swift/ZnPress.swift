@@ -23,7 +23,8 @@ final class ZnPressState {
 }
 
 /// Pressable's press feedback, as Android's ZnRipple / ZnHighlight (ZnAnimation.kt), drawn over the content and inside
-/// the node's shape. ripple (the default): a circle from the finger, black at 12 % (a `rippleColor` at 24 %;
+/// the node's shape. ripple (the default): a circle from the finger that moves to the center as it grows (from the
+/// center when borderless), black at 12 % (a `rippleColor` at 24 %;
 /// `rippleOpacity` wins), growing to cover the node in ~225 ms and fading ~150 ms after the finger leaves (Material's
 /// timings); `rippleBorderless`: not clipped, `rippleRadius` its size. highlight: a flat overlay while pressed.
 struct ZnPressFeedback: View {
@@ -45,12 +46,13 @@ struct ZnPressFeedback: View {
         default:
             GeometryReader { geo in
                 let size = geo.size
-                // To the farthest corner: the circle covers the node wherever the finger was.
-                let far = [CGPoint.zero, CGPoint(x: size.width, y: 0), CGPoint(x: 0, y: size.height), CGPoint(x: size.width, y: size.height)]
-                    .map { hypot($0.x - origin.x, $0.y - origin.y) }.max() ?? 0
-                let r = s.rippleRadius ?? (s.rippleBorderless ? max(size.width, size.height) / 2 : far)
+                // As Android's RippleDrawable: a borderless ripple grows from the node's center wherever the finger
+                // was; a bounded one starts at the finger and moves to the center while it grows, ending at the
+                // corners. (iOS drew both around the finger, so a tap near an icon's edge rippled off to one side.)
+                let start = s.rippleBorderless ? CGPoint(x: size.width / 2, y: size.height / 2) : origin
+                let r = s.rippleRadius ?? (s.rippleBorderless ? max(size.width, size.height) / 2 : hypot(size.width, size.height) / 2)
                 let alpha = s.rippleOpacity ?? (s.rippleColor == nil ? 0.12 : 0.24)
-                ZnRippleCircle(center: origin, radius: r, scale: grown ? 1 : 0.2, shown: shown ? 1 : 0)
+                ZnRippleCircle(start: start, radius: r, scale: grown ? 1 : 0.2, shown: shown ? 1 : 0)
                     .fill(s.rippleColor ?? .black)
                     .opacity(shown ? alpha : 0)
             }
@@ -77,7 +79,8 @@ struct ZnPressFeedback: View {
 /// The ripple's circle. No path at all while it isn't shown (once its fade has ended): SwiftUI counts a shape's path
 /// in the Pressable's VoiceOver frame, hidden or not, so an idle circle made the element larger than its box.
 private struct ZnRippleCircle: Shape {
-    var center: CGPoint
+    /// Where it starts; its center moves from here to the middle of the node as it grows (scale 0.2 → 1).
+    var start: CGPoint
     var radius: CGFloat
     var scale: CGFloat
     /// 1 while shown, animated to 0 with the fade.
@@ -91,6 +94,8 @@ private struct ZnRippleCircle: Shape {
     func path(in rect: CGRect) -> Path {
         guard shown > 0 else { return Path() }
         let r = radius * scale
+        let t = min(max((scale - 0.2) / 0.8, 0), 1)
+        let center = CGPoint(x: start.x + (rect.midX - start.x) * t, y: start.y + (rect.midY - start.y) * t)
         return Path(ellipseIn: CGRect(x: center.x - r, y: center.y - r, width: r * 2, height: r * 2))
     }
 }

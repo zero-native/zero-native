@@ -68,6 +68,7 @@ struct ZnCarouselView: View {
                     // page with no Pressable left nothing for the touch gesture below, and autoAdvance didn't pause.
                     .contentShape(Rectangle())
                     .background { if element != nil { ZnScrollFinder(driver: scroll) } }
+                    .background { ZnTouchWatchProbe { lastTouch = Date() } }
                     // Where the pages' row is in the scroll view: its end at the scroll's end means the last page.
                     .onGeometryChange(for: Bool.self) { p in
                         let f = p.frame(in: .named(Self.space))
@@ -82,7 +83,6 @@ struct ZnCarouselView: View {
                 .scrollTargetBehavior(.viewAligned)
                 .scrollPosition(id: $page)
                 .coordinateSpace(.named(Self.space))
-                .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in lastTouch = Date() })
             }
             // A GeometryReader has no height of its own: with a height it takes what the dots leave; without one, the
             // tallest page's.
@@ -229,4 +229,62 @@ final class ZnCarouselElement {
         else { return }
         sv.setContentOffset(CGPoint(x: to - i.left, y: sv.contentOffset.y), animated: true)
     }
+}
+
+/// A touch on the pages pauses autoAdvance: a UIKit recognizer on the carousel's scroll view that only watches. It
+/// used to be a SwiftUI DragGesture(minimumDistance: 0) on the scroll view, which began at the finger's touch-down and
+/// so cancelled the touch of a Pressable on a page: a banner's tap did nothing (ZeroBill's Store Promotions,
+/// 2026-11-24). This one never begins, never cancels or delays the touches, and prevents no other gesture.
+struct ZnTouchWatchProbe: UIViewRepresentable {
+    let onTouch: () -> Void
+
+    func makeUIView(context: Context) -> ZnTouchWatchProbeView {
+        let v = ZnTouchWatchProbeView()
+        v.isUserInteractionEnabled = false
+        v.isAccessibilityElement = false
+        return v
+    }
+
+    func updateUIView(_ v: ZnTouchWatchProbeView, context: Context) {
+        v.watch.onTouch = onTouch
+        DispatchQueue.main.async { [weak v] in v?.attach() }
+    }
+
+    static func dismantleUIView(_ v: ZnTouchWatchProbeView, coordinator: ()) {
+        v.watch.view?.removeGestureRecognizer(v.watch)
+    }
+}
+
+final class ZnTouchWatchProbeView: UIView {
+    let watch = ZnTouchWatch()
+
+    /// Onto the nearest scroll view up the hierarchy (again if SwiftUI made a new one).
+    func attach() {
+        var p = superview
+        while let v = p, !(v is UIScrollView) { p = v.superview }
+        guard let sv = p as? UIScrollView, watch.view !== sv else { return }
+        watch.view?.removeGestureRecognizer(watch)
+        sv.addGestureRecognizer(watch)
+    }
+}
+
+final class ZnTouchWatch: UIGestureRecognizer {
+    var onTouch: () -> Void = {}
+
+    init() {
+        super.init(target: nil, action: nil)
+        cancelsTouchesInView = false
+        delaysTouchesBegan = false
+        delaysTouchesEnded = false
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) { onTouch() }
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) { onTouch() }
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        onTouch()
+        state = .failed
+    }
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) { state = .failed }
+    override func canPrevent(_ preventedGestureRecognizer: UIGestureRecognizer) -> Bool { false }
+    override func canBePrevented(by preventingGestureRecognizer: UIGestureRecognizer) -> Bool { false }
 }
