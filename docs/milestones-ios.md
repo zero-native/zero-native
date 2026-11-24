@@ -283,6 +283,10 @@ and the measurement tools (§11).
 | autoCapitalize, autoCorrect | done (2026-11-21, 7e787b2; ZnUIRules.swift, Mac suite uirules) | S |
 | editable (also at runtime), placeholder / colour at runtime | done (2026-11-21; a read-only one-line field takes no focus on iOS) | S |
 | placeholderColor, selectionColor | done (2026-11-21, 7e787b2; #9CA3AF when not set, decision 2) | S |
+| multiline with maxHeight (or a height) | done (simulator, 2026-11-24; ZnFieldTextView: stops at the height it is offered and scrolls inside only while its text is taller, the cursor kept in sight; it drew its lower lines over the views below. Lab textPolishLab, UI test TextPolishTests.testMultilineMaxHeight) | S |
+| returnKeyType "next" | done (simulator, 2026-11-24; ZnFieldFocus.focusNext: the next field on the screen in reading order takes focus and the keyboard stays up, as Compose's ImeAction.Next; read-only, pointerEvents "none", hidden-tab fields passed over; none after it: the keyboard closes. Single-line and multiline. UI test testReturnKeyNext) | S |
+| letterSpacing, textDecorationLine (+ style), multiline lineHeight and textAlign | done (simulator, 2026-11-24; ZnFieldExtras: UIKit attributes on the text and the placeholder; a single line ignores lineHeight, as Compose trims it there. Lab textPolishLab §4, screenshot) | S |
+| A field's or link Text's box on a hidden tab or clipped by a Scroll | done (simulator, 2026-11-24; the marker hides with znInHiddenTab, ZnFieldFocus.boxes(at:) keeps a box only where znShows says it shows; it took a bigger Pressable's taps. UI test testHiddenAndClippedFieldsLeaveTaps) | S |
 
 ### List, Scroll, Carousel, Text
 | Prop | iOS | Size |
@@ -297,6 +301,8 @@ and the measurement tools (§11).
 | Scroll keyboardDismissMode (r24) | done (2026-11-21; SwiftUI's scrollDismissesKeyboard, interactive only vertical as Android, none never closes it) | S |
 | Carousel `itemWidthPercent` (r23) | done (2026-11-21, 7e787b2; the last page shown at the scroll's end) | S |
 | Text `selectable`, `adjustsFontSizeToFit`, `minimumFontScale` (r23) | done (2026-11-21, 7e787b2) | S |
+| Text `numberOfLines={0}` (no limit) | done (simulator, 2026-11-24; znTextLineLimit: 0 or less is no limit, as RN; it was one line and "…". UI test TextPolishTests.testNumberOfLinesZero. Android likely throws: see the A-log) | S |
+| Text in a taller box (height, minHeight, stretch, flex) at the top | done (simulator, 2026-11-24; ZnRenderer contentAlignment .topLeading / .top / .topTrailing, as Compose and RN; it was centred. Lab textPolishLab §3, screenshot) | S |
 
 ### Sheet, Svg
 | Prop | iOS | Size |
