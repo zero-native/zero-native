@@ -43,6 +43,12 @@
 	</dict>
 	<key>UILaunchScreen</key>
 	<dict/>
+	<!-- Light, as Android's Theme.Material.Light: the launch screen is white (not black on a phone in dark mode) and
+	     Alerts, the keyboard and pickers stay light over the app's light screens. JS's colorScheme() says "light" too
+	     (as React Native's Appearance with this key). An app with dark screens: set Dark; one with both: remove this
+	     key, and colorScheme() follows the phone (its screens should then draw from colorScheme()). -->
+	<key>UIUserInterfaceStyle</key>
+	<string>Light</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UISupportedInterfaceOrientations</key>
