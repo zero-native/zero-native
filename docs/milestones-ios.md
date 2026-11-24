@@ -298,6 +298,7 @@ and the measurement tools (§11).
 | Scroll onScroll (throttled), onScrollBeginDrag / EndDrag, onMomentumScrollBegin / End (r24) | done (2026-11-21; ZnScrollDriver: contentOffset KVO, a pan target, momentum begins at the release when UIKit coasts, and a snap scroll always sends begin and end as Android's fling; onScroll at most once a frame; checked with drags and flings on the simulator, ScrollLab) | M |
 | Scroll pagingEnabled, snapToInterval / Alignment, snapToOffsets, snapToStart / End, disableIntervalMomentum, decelerationRate (r24) | done (2026-11-21; Android's ZnSnap.pick through scrollTargetBehavior, a let-go with no speed snaps too, also while refreshing; the rate is UIKit's own, set again at each drag) | M |
 | Scroll ref scrollTo / scrollToEnd (r24) | done (2026-11-21; once per seq on the instance, waits for the scroll view and its first layout) | S |
+| Scroll in the safe area | done (simulator, 2026-11-24, polish D) | S | Clipped to its frame, so a full-screen Scroll stops at the status bar and home indicator lines (over a `<StatusBar backgroundColor>` strip too), as Compose's verticalScroll; a full-bleed route (safeArea off on a side) still draws under that bar. |
 | Scroll keyboardDismissMode (r24) | done (2026-11-21; SwiftUI's scrollDismissesKeyboard, interactive only vertical as Android, none never closes it) | S |
 | Carousel `itemWidthPercent` (r23) | done (2026-11-21, 7e787b2; the last page shown at the scroll's end) | S |
 | Text `selectable`, `adjustsFontSizeToFit`, `minimumFontScale` (r23) | done (2026-11-21, 7e787b2) | S |
@@ -325,7 +326,7 @@ debug notice for props it didn't draw yet is gone (ZnTemplate.swift). The props 
 | Keyboard (2) | done | |
 | Fetch (1) | done | URLSession; fetch checks 41 / 41 (iOS simulator, 2026-11-21); parallel answers fixed; upload / download progress, `FormData` files streamed from disk (200 MB checked), network-change session flush (docs/fetch.md §9). |
 | SecureStore (1) | done | Keychain; an earlier install's items cleared on a new install. |
-| Toast (1), Alert (1), Clipboard (1), Vibration (1) | done | |
+| Toast (1), Alert (1), Clipboard (1), Vibration (1) | done |  Toast (2026-11-24, polish D): rides up and down with the keyboard while it shows, two lines at most, none for an empty message (UI test ToastKeyboardTests). |
 | Permissions (1) | done | camera, microphone, contacts, notifications, location (+ precise). |
 | Os (2) | done | `openUrl` opens any scheme but intent / file / javascript. |
 | NetInfo (1) | done | |
@@ -355,6 +356,9 @@ debug notice for props it didn't draw yet is gone (ZnTemplate.swift). The props 
 | Motion plugin API: ZnMotionApi (value handles, onDispose, onFrame, registerDriver, reader) and ZnViewScope.motion / onMotion | done (engine on by default 2026-11-24; 2026-11-22, W3-C) | M | ZnMotionApi.swift mirrors ZnMotionApi.kt's three parts and names (Handle.value / onDispose, onFrame returns a FrameToken kept until it ends, registerDriver with the public ZnMotionDriver: durationNanos, value, velocity). UIKit views are not redrawn by SwiftUI, so a view also gets `scope.onMotion(name) { v in }`, called on frames where the value changed (ZnMotionEngine.onDirty; no polling per view). Lottie follows a motion `progress`; the test plugin has orbit, device.wobble and the fake view's level bar. Mac test: ios/tests/motion. Check: MotionCoreLab §6. |
 | useTilt (CoreMotion gravity) | done; the signs checked on the Mac only (2026-11-22, W3-C) | S | ZnTilt.swift: deviceMotion (the accelerometer if there is none) at 50 Hz as SENSOR_DELAY_GAME, turned with the scene's interface orientation, the same 0.2 low-pass (ZnTiltFilter, ios/tests/motion), stops when the app resigns active and starts again when active with users. No permission. CoreMotion linked in CMake, SwiftPM and the CMake app template. The filter resets when the last user goes. The simulator has no motion: x / y stay 0; needs an iPhone side by side with Android, both landscapes included: the Mac suite checks iOS against one reference per rotation (Android's AccelerometerPlay turn), and Android's ZnTilt gives the opposite signs in landscape today (an Android issue from W3-C; the suite reads Android's lines, so a change there shows). |
 | Splash hold | done | | Cover = launch storyboard, else UILaunchScreen colour / image. |
+| A push or back while a slide is under way | done (simulator, 2026-11-24, polish D) | S | UIKit queues a change that comes during a slide, and `viewControllers` keeps the old boxes until it runs: ZnNavController keeps the boxes it last set (`lastSet`) and tells JS FORCED_BACK only for a pop UIKit made itself (`popped`: the back swipe). Before, the first slide's didShow took JS's newer push for a swipe back, released the new screen and showed it blank white. Navigation race lab (`navRaceLab`, 44 cases at 0 to 900 ms, 44/44) and UI test NavRaceTests. |
+| Edge back swipe over a Carousel or a sideways Scroll / List | done (simulator, 2026-11-24, polish D) | S | As Android's system back gesture: a scroll view that scrolls sideways under a touch starting within 30 pt of the left edge waits for the back swipe to fail (ZnNavController `shouldBeRequiredToFailBy`). A drag to the left there still scrolls; from further in, the rail scrolls. Checked on the Offers screen (carousel and rails). |
+| Light app style (template and sample) | done (simulator, 2026-11-24, polish D) | S | `UIUserInterfaceStyle` Light in templates/app/ios/App/Info.plist and ios/Sample/Info.plist, as Android's Theme.Material.Light: white launch screen, light Alerts and keyboard on a phone in dark mode. JS's `colorScheme()` then says "light" (React Native's Appearance does the same with the key). Dark app: set Dark; both: remove the key. |
 | Error screen, RETRY, hung JS, JS time limit | done | | |
 | Native screens, native views, plugin loading (modules, screens, views, host API check, JS error / top-route listeners) | done | | |
 | `zn://file` handles | done | | Caches/zn-files. `app-icon` n/a. |
@@ -515,6 +519,7 @@ Full entries are in `docs/milestones.md` `## Log`, newest first.
 
 | Date | Piece | Commit |
 |---|---|---|
+| 2026-11-24 | Screens polish: a push during a slide (no blank screen), edge back swipe over carousels, Scroll clipped at the bars, light template, toast follows the keyboard | polish D |
 | 2026-11-24 | Motion gate: the engine on by default, host API 10 (native only), no motion bundle for iOS apps below 10, method coverage test | W5-A |
 | 2026-11-24 | TSX image viewer on iOS end to end (paging, zoom, close, labels); List rows laid out under the bars; UI test ImageViewerTests | W5-B |
 | 2026-11-24 | See-through screens: absolute layers stop taps (even at opacity 0); a sideways List keeps its first item across a width change | W5-B review |
