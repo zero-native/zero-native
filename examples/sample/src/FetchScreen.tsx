@@ -2,7 +2,8 @@
 // server (tools/fetch-test-server.ts, through adb reverse) and a few public HTTPS hosts, and shows pass / fail.
 // Open with: adb shell am start -a android.intent.action.VIEW -d zn://sample/dev/fetch
 // Each result is also logged: adb logcat -s zn-js | findstr fetch-check
-// Params: { port } for a server on another port (raw: port + 1); { dir } a folder the app can read with the lab
+// Params: { host } where the server is (default localhost; an iPhone uses the Mac's LAN address, which the server
+// prints at start: zn://sample/dev/fetch?host=192.168.1.20); { port } for a server on another port (raw: port + 1); { dir } a folder the app can read with the lab
 // files in it (made by the server's --files: a 3 MB and a 200 MB file), for the FormData file cases; { run } runs
 // all at once; { only } keeps the cases whose name has that text. On the iOS simulator any Mac folder works (a
 // simulator app reads Mac files; not the app's own container, which moves when ios-sample.ts installs again):
@@ -61,9 +62,9 @@ interface UploadPart {
   pattern?: boolean
 }
 
-function checksFor(port: number, dir?: string): Array<[string, Check]> {
-  const L = `http://localhost:${port}`
-  const RAW = `http://localhost:${port + 1}`
+function checksFor(host: string, port: number, dir?: string): Array<[string, Check]> {
+  const L = `http://${host}:${port}`
+  const RAW = `http://${host}:${port + 1}`
   const file = (name: string) => `file://${encodeURI(`${dir}/${name}`)}`
   const needDir = () => must(!!dir, "no { dir } param: start the server with --files <folder> and pass that folder")
   return [
@@ -93,9 +94,11 @@ function checksFor(port: number, dir?: string): Array<[string, Check]> {
       return res.url
     }],
     ["Authorization dropped on another host", async () => {
-      const j = await (await fetch(`${L}/redirect-other-host`, { headers: { Authorization: "Bearer secret" } })).json()
+      // The server sends it on to another name for itself (localhost ↔ 127.0.0.1; from a LAN address, the Mac's .local name).
+      const res = await fetch(`${L}/redirect-other-host`, { headers: { Authorization: "Bearer secret" } })
+      const j = await res.json()
       must(j.authorization === null, `server got ${j.authorization}`)
-      return "not sent to 127.0.0.1"
+      return `not sent to ${res.url.replace(/^https?:\/\//, "").replace(/\/.*$/, "")}`
     }],
     ["redirect: \"error\" rejects", async () => expectCode(await rejects(fetch(`${L}/redirect/1`, { redirect: "error" })), "redirect_not_allowed")],
     ["redirect: \"manual\" returns the 302", async () => {
@@ -364,11 +367,12 @@ interface Case {
   color: Signal<string>
 }
 
-export function FetchScreen(props: { port?: number; dir?: string; run?: boolean; only?: string }) {
+export function FetchScreen(props: { host?: string; port?: number; dir?: string; run?: boolean; only?: string }) {
+  const host = props.host || "localhost"
   const port = Number(props.port ?? 8788)
-  const checks = checksFor(port, props.dir).filter(([name]) => !props.only || name.includes(props.only))
+  const checks = checksFor(host, port, props.dir).filter(([name]) => !props.only || name.includes(props.only))
   const cases: Case[] = checks.map(([name]) => ({ name, state: signal("—"), color: signal<string>(c.muted) }))
-  const summary = signal(`Start the test server first (tools/fetch-test-server.ts, port ${port}), then Run all.`)
+  const summary = signal(`Start the test server first (tools/fetch-test-server.ts, ${host}:${port}), then Run all.`)
   let running = false
 
   const runAll = async () => {

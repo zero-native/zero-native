@@ -1,7 +1,9 @@
 // A dev screen for WebSocket (docs/fetch.md §8): runs every case we promise against the local test server
 // (tools/fetch-test-server.ts: ws://localhost:8788/ws, raw :8789) and one public wss echo, and shows pass / fail.
 // Open with: bun run tools/ios-sample.ts --route wsLab (iOS), or zn://sample/dev/websocket (Android, after
-// adb reverse tcp:8788 tcp:8788 and tcp:8789). Params: { port } for a server on another port (raw: port + 1),
+// adb reverse tcp:8788 tcp:8788 and tcp:8789). Params: { host } where the server is (default localhost; an iPhone
+// uses the Mac's LAN address, which the server prints: zn://sample/dev/websocket?host=192.168.1.20; the "20 sockets"
+// case then times that host), { port } for a server on another port (raw: port + 1),
 // { run: true } to start at once, { only: "text" } for just the cases whose name has that text, { hold: "echo" } or
 // { hold: "slowpong" } to open that held socket at once. Each result is also logged: ws-check PASS / FAIL.
 import { Column, Pressable, Row, Scroll, Text } from "@zeronative/ui"
@@ -68,10 +70,12 @@ async function errorThenClose(t: Tracked, code: number, wasClean: boolean, ms = 
 
 type Check = () => Promise<string>
 
-function checksFor(port: number): Array<[string, Check]> {
-  const W = `ws://localhost:${port}/ws`
-  const RAW = `ws://localhost:${port + 1}`
-  const L = `http://localhost:${port}`
+function checksFor(host: string, port: number): Array<[string, Check]> {
+  const W = `ws://${host}:${port}/ws`
+  const RAW = `ws://${host}:${port + 1}`
+  const L = `http://${host}:${port}`
+  // The 80-socket case by address (see there): 127.0.0.1 for localhost, else the host given (a LAN address on a phone).
+  const many = host === "localhost" ? "127.0.0.1" : host
   return [
     ["open, echo, close 1000", async () => {
       const t = track(W)
@@ -214,7 +218,7 @@ function checksFor(port: number): Array<[string, Check]> {
     // By address all 80 open in 0.2-0.7 s. Still one host, so it still checks that nothing caps sockets per host. The
     // next case keeps a small localhost burst, with its time; 80 to a real host name is a phone check.
     ["80 sockets to one host", async () => {
-      const all = Array.from({ length: 80 }, () => track(`ws://127.0.0.1:${port}/ws`))
+      const all = Array.from({ length: 80 }, () => track(`ws://${many}:${port}/ws`))
       await Promise.all(all.map((t) => next(t, "open", 8000)))
       all.forEach((t, i) => t.ws.send(`socket ${i}`))
       const got = await Promise.all(all.map((t) => next(t, "message")))
@@ -223,15 +227,16 @@ function checksFor(port: number): Array<[string, Check]> {
       must(got.every((m, i) => m.data === `socket ${i}`), "a socket got another's echo")
       return "80 opened at once, echoed, closed"
     }],
-    // 20 to "localhost" at once, with the time the last open took (the slow path above; 8 s each is the limit).
-    ["20 sockets to localhost (timed)", async () => {
+    // 20 to the host (localhost on the simulator) at once, with the time the last open took (the slow path above; 8 s
+    // each is the limit).
+    [`20 sockets to ${host} (timed)`, async () => {
       const t0 = Date.now()
       const all = Array.from({ length: 20 }, () => track(W))
       await Promise.all(all.map((t) => next(t, "open", 8000)))
       const ms = Date.now() - t0
       all.forEach((t) => t.ws.close())
       await Promise.all(all.map((t) => next(t, "close")))
-      console.info(`ws-lab: 20 sockets to localhost opened in ${ms} ms`)
+      console.info(`ws-lab: 20 sockets to ${host} opened in ${ms} ms`)
       return `20 opened in ${ms} ms`
     }],
     // Our close on iOS: URLSession sends the close frame and ends the connection at once, without waiting for the
@@ -286,7 +291,7 @@ function checksFor(port: number): Array<[string, Check]> {
     }],
     ["unknown host: error, close 1006", async () => errorThenClose(track("wss://no-such-host.invalid/"), 1006, false)],
     ["connection refused: error, close 1006", async () => errorThenClose(track("ws://localhost:1/"), 1006, false)],
-    ["handshake 404: error, close 1006", async () => errorThenClose(track(`ws://localhost:${port}/nope`), 1006, false)],
+    ["handshake 404: error, close 1006", async () => errorThenClose(track(`ws://${host}:${port}/nope`), 1006, false)],
     ["cleartext ws:// to a public host is blocked", async () => {
       const t = track("ws://example.com/")
       const r = await errorThenClose(t, 1006, false)
@@ -365,16 +370,17 @@ function heldSocket(url: string, label: string) {
   return { state, toggle }
 }
 
-export function WebSocketLabScreen(props: { port?: number; run?: boolean; only?: string; hold?: "echo" | "slowpong" }) {
+export function WebSocketLabScreen(props: { host?: string; port?: number; run?: boolean; only?: string; hold?: "echo" | "slowpong" }) {
+  const host = props.host || "localhost"
   const port = Number(props.port ?? 8788)
-  const checks = checksFor(port).filter(([name]) => !props.only || name.includes(props.only))
+  const checks = checksFor(host, port).filter(([name]) => !props.only || name.includes(props.only))
   const cases: Case[] = checks.map(([name]) => ({ name, state: signal("—"), color: signal<string>(c.muted) }))
-  const summary = signal(`Start the test server first (tools/fetch-test-server.ts, port ${port}), then Run all.`)
+  const summary = signal(`Start the test server first (tools/fetch-test-server.ts, ${host}:${port}), then Run all.`)
   // The second one waits 3 s for each pong: suspended in that window (home button, or `kill -STOP` on the
   // simulator's app process), the socket must still be fine on return.
   const held = [
-    { key: "echo", title: "Hold one socket open (tap to open / close)", ...heldSocket(`ws://localhost:${port}/ws`, "echo") },
-    { key: "slowpong", title: "Hold one socket, pongs 3 s late (tap to open / close)", ...heldSocket(`ws://localhost:${port + 1}/ws-slowpong`, "slowpong") },
+    { key: "echo", title: "Hold one socket open (tap to open / close)", ...heldSocket(`ws://${host}:${port}/ws`, "echo") },
+    { key: "slowpong", title: "Hold one socket, pongs 3 s late (tap to open / close)", ...heldSocket(`ws://${host}:${port + 1}/ws-slowpong`, "slowpong") },
   ]
   let running = false
 

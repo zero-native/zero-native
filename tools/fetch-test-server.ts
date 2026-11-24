@@ -22,9 +22,16 @@
 // of the lab files. `--files <folder>` first makes those files there (zn-lab-3mb.bin, zn-lab-200mb.bin); on the iOS
 // simulator any Mac folder works (--files /tmp/zn-lab, and the lab's { dir: "/tmp/zn-lab" }).
 // /conn answers the client's port: two calls on one pooled connection get the same port.
+//
+// An iPhone (no adb reverse): both ports listen on every interface, IPv4 and IPv6 (the default; `--host 127.0.0.1`
+// keeps them on this Mac), and the start lines print this Mac's LAN addresses. Open the labs with that address:
+// zn://sample/dev/fetch?host=192.168.1.20 and zn://sample/dev/websocket?host=192.168.1.20 (the phone on the same
+// Wi-Fi; a Debug build asks for Local Network access the first time; plain http to a LAN address is allowed by the
+// sample's NSAllowsLocalNetworking).
 import { createHash } from "node:crypto"
 import { closeSync, existsSync, mkdirSync, openSync, statSync, writeSync } from "node:fs"
 import { createServer } from "node:net"
+import { hostname, networkInterfaces } from "node:os"
 import { join } from "node:path"
 import { gzipSync, type ServerWebSocket } from "bun"
 import { tabsAnswer } from "./plugin-phone/tabs-server"
@@ -32,6 +39,21 @@ import { tabsAnswer } from "./plugin-phone/tabs-server"
 // Other ports for a second server next to one already running: ZN_TEST_HTTP_PORT=8798 (raw: the next port).
 const HTTP_PORT = Number(process.env.ZN_TEST_HTTP_PORT ?? 8788)
 const RAW_PORT = HTTP_PORT + 1
+// Where both ports listen: unset = every interface, IPv4 and IPv6 (Bun's and node:net's default, so a phone on the
+// Wi-Fi reaches it and "localhost" finds ::1 at once), or `--host 127.0.0.1` for this Mac only.
+const hostAt = process.argv.indexOf("--host")
+const HOST = hostAt !== -1 ? process.argv[hostAt + 1] : undefined
+
+/** This Mac's IPv4 LAN addresses (what a phone on the same Wi-Fi uses). */
+function lanAddresses(): string[] {
+  return Object.values(networkInterfaces()).flat().filter((a) => a && a.family === "IPv4" && !a.internal).map((a) => a!.address)
+}
+
+/** This Mac's Bonjour name (`<LocalHostName>.local`), which a phone resolves on the same Wi-Fi. */
+function localName(): string {
+  const scutil = process.platform === "darwin" ? Bun.spawnSync(["scutil", "--get", "LocalHostName"]).stdout.toString().trim() : ""
+  return `${scutil || hostname().replace(/\.local$/, "")}.local`
+}
 
 /** The lab files: byte i is i % 251 (ios/tests/net makes the same). Written in 1 MB pieces; kept when the size is right. */
 const LAB_FILES: Array<[string, number]> = [["zn-lab-3mb.bin", 3 * 1024 * 1024 + 17], ["zn-lab-200mb.bin", 200_000_000]]
@@ -111,6 +133,7 @@ const json = (data: unknown, init: ResponseInit = {}) =>
 
 Bun.serve<WsData, never>({
   port: HTTP_PORT,
+  ...(HOST ? { hostname: HOST } : {}),
   maxRequestBodySize: 1024 * 1024 * 1024, // the lab's 200 MB upload (default 128 MB)
   async fetch(req, server) {
     const url = new URL(req.url)
@@ -187,9 +210,12 @@ Bun.serve<WsData, never>({
       const n = Number(path.slice("/redirect/".length))
       return new Response(null, { status: 302, headers: { location: n > 1 ? `/redirect/${n - 1}` : "/json" } })
     }
-    // Same port, other host name: OkHttp must drop Authorization when the host changes.
+    // Same port, other host name: OkHttp must drop Authorization when the host changes. localhost goes to 127.0.0.1
+    // (and back); a LAN address (a phone) to this Mac's .local name.
     if (path === "/redirect-other-host") {
-      return new Response(null, { status: 302, headers: { location: `http://127.0.0.1:${HTTP_PORT}/auth` } })
+      const h = url.hostname
+      const other = h === "localhost" || h === "[::1]" ? "127.0.0.1" : h === "127.0.0.1" ? "localhost" : localName()
+      return new Response(null, { status: 302, headers: { location: `http://${other}:${HTTP_PORT}/auth` } })
     }
     if (path === "/auth") return json({ authorization: req.headers.get("authorization") })
     // The image viewer lab (/dev/image-viewer): a picture only with the lab's header, else 401. Logs yes or no, not the value.
@@ -357,7 +383,10 @@ createServer((socket) => {
   })
   socket.on("error", () => {})
   socket.on("close", () => ws && console.log(`raw ws (${ws.mode}): connection closed`))
-}).listen(RAW_PORT)
+}).listen(RAW_PORT, HOST)
 
 console.log(`fetch test server: http://localhost:${HTTP_PORT} and raw http://localhost:${RAW_PORT}`)
 console.log(`on the phone: adb reverse tcp:${HTTP_PORT} tcp:${HTTP_PORT}; adb reverse tcp:${RAW_PORT} tcp:${RAW_PORT}`)
+if (HOST === undefined || !["127.0.0.1", "localhost", "::1"].includes(HOST)) {
+  for (const ip of lanAddresses()) console.log(`an iPhone on this Wi-Fi: zn://sample/dev/fetch?host=${ip}  zn://sample/dev/websocket?host=${ip}`)
+}
