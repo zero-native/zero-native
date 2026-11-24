@@ -325,6 +325,8 @@ final class ZnGestureHub: NSObject, UIGestureRecognizerDelegate {
     private var timerAt: Int64?
     /// The pans told to wait for the claim in this touch (otherWaits), until the claim resets.
     private let waiting = NSHashTable<UIGestureRecognizer>.weakObjects()
+    /// Of those, the ones that read began in an event the claim outlived: they have the touch from the next event on.
+    private let ripe = NSHashTable<UIGestureRecognizer>.weakObjects()
 
     private init(_ view: UIView) {
         self.view = view
@@ -416,16 +418,25 @@ final class ZnGestureHub: NSObject, UIGestureRecognizerDelegate {
 
     /// One event per node that has one of [touches].
     private func deliver(_ touches: Set<UITouch>, phase: UITouch.Phase) {
-        // Someone else's pan (a scroll, a sheet, the back swipe) took these touches. Not one that waits for the claim
-        // while the claim may still begin: UIKit already shows it as began but holds it (its scroll hasn't moved) until
-        // the claim fails, and it fails itself if the claim begins. Counted as taken, the node let go and the hub failed
-        // the claim, which let the pan go: a drag right after a double tap zoomed a photo turned the List's page in
-        // about 1 in 4, when UIKit gave the move to the pan before the claim (2026-11-24, ImageViewerTests).
-        let taken = touches.contains { t in
-            (t.gestureRecognizers ?? []).contains { r in
-                !(r is ZnGestureFeed) && !(r is ZnGestureClaim) && (r is UIPanGestureRecognizer || r is UIPinchGestureRecognizer)
-                    && (r.state == .began || r.state == .changed) && !held(r)
+        // Someone else's pan (a scroll, a sheet, the back swipe) took these touches: Compose's "the scroll consumed it".
+        // One that waits for the claim gets one event of grace: UIKit already shows it as began but holds it (its
+        // scroll hasn't moved) until the claim fails. In that event the nodes see the move unconsumed and one may claim
+        // (a drag right after a double tap zoomed a photo: counted as taken at once, the node let go and the hub failed
+        // the claim, which let the pan go and turned the List's page in about 1 in 4 runs, when UIKit gave the move to
+        // the pan before the claim; 2026-11-24, ImageViewerTests). If the claim outlives that event, the pan has the
+        // touch from the next one on, as Compose's scroll consumes at its own slop and the node inside sees it
+        // consumed in the next event (a swipe row with only activeOffsetX in a List: the List scrolls).
+        var taken = false
+        var heldNow: [UIGestureRecognizer] = []
+        for t in touches {
+            for r in t.gestureRecognizers ?? [] where !(r is ZnGestureFeed) && !(r is ZnGestureClaim)
+                && (r is UIPanGestureRecognizer || r is UIPinchGestureRecognizer) && (r.state == .began || r.state == .changed) {
+                if ripe.contains(r) || !held(r) { taken = true } else { heldNow.append(r) }
             }
+        }
+        defer {
+            // Still possible after the event: the held pans have the touch from the next one.
+            if claim.state == .possible { for r in heldNow { ripe.add(r) } }
         }
         var consumed = false
         for e in order() where e.touches.contains(where: { touches.contains($0) }) {
@@ -602,7 +613,10 @@ final class ZnGestureHub: NSObject, UIGestureRecognizerDelegate {
     }
 
     /// The claim's touch is over: its waits go with it.
-    fileprivate func claimReset() { waiting.removeAllObjects() }
+    fileprivate func claimReset() {
+        waiting.removeAllObjects()
+        ripe.removeAllObjects()
+    }
 
     private func otherWaitsNow(_ other: UIGestureRecognizer) -> Bool {
         guard other is UIPanGestureRecognizer || other is UIPinchGestureRecognizer, !(other is ZnGestureFeed),

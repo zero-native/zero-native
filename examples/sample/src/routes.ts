@@ -79,6 +79,7 @@ import { TextPolishLabScreen, TextPolishLinesLabScreen, TextSpacingLabScreen } f
 import { NavRaceLabScreen, NavRaceTargetScreen } from "./NavRaceLab"
 import { TouchFixLabScreen } from "./TouchFixLab"
 import { ChecksLabScreen, ChecksSnapLabScreen } from "./ChecksLab"
+import { ScrollWinsLabScreen, ScrollWinsLongLabScreen, ScrollWinsSheetLabScreen } from "./ScrollWinsLab"
 
 export const routes = defineRoutes({
   home: { path: "/", screen: HomeScreen },
@@ -225,6 +226,11 @@ export const routes = defineRoutes({
   // A snapping Scroll under the system bars (ChecksLab.tsx e), and the same screen inside them to compare. Last, as above.
   checksSnapLab: { path: "/dev/checks/snap", screen: ChecksSnapLabScreen, deepLink: true, safeArea: "none" },
   checksSnapSafeLab: { path: "/dev/checks/snap-safe", screen: ChecksSnapLabScreen, restore: false },
+  // The List around a swipe row or a long press scrolls at its own slop, and a {cond && <Sheet>} closed by a flick
+  // (ScrollWinsLab.tsx; UI test ScrollWinsTests). Last, as above.
+  scrollWinsLab: { path: "/dev/gestures/scroll-wins", screen: ScrollWinsLabScreen, deepLink: true },
+  scrollWinsLongLab: { path: "/dev/gestures/scroll-wins/long", screen: ScrollWinsLongLabScreen, deepLink: true },
+  scrollWinsSheetLab: { path: "/dev/gestures/scroll-wins/sheet", screen: ScrollWinsSheetLabScreen, deepLink: true },
 })
 
 // Typed navigation: nav.push("amount", { merchantId }) is checked against these routes.
