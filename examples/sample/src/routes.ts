@@ -76,6 +76,7 @@ import { ListsTwoLabScreen } from "./ListsTwoLab"
 import { NavStartLabScreen, SharedLabDetailScreen, SharedLabScreen, SharedLabSeeThroughScreen } from "./SharedLab"
 import { PaintLabScreen } from "./PaintLab"
 import { TextPolishLabScreen } from "./TextPolishLab"
+import { TextPolishLabScreen, TextPolishLinesLabScreen } from "./TextPolishLab"
 
 export const routes = defineRoutes({
   home: { path: "/", screen: HomeScreen },
@@ -204,6 +205,8 @@ export const routes = defineRoutes({
   // Text and field polish (TextPolishLab.tsx): multiline maxHeight, returnKeyType next, a Text in a tall box, a field's
   // letterSpacing, numberOfLines 0, fields on a hidden tab or clipped by a Scroll. Last, as above.
   textPolishLab: { path: "/dev/text-polish", screen: TextPolishLabScreen, deepLink: true },
+  // numberOfLines={0} on its own screen (Android throws there until ZnTemplate.kt maps 0). Last, as above.
+  textPolishLinesLab: { path: "/dev/text-polish/lines", screen: TextPolishLinesLabScreen, deepLink: true },
 })
 
 // Typed navigation: nav.push("amount", { merchantId }) is checked against these routes.

@@ -5,12 +5,20 @@
 //   2. returnKeyType="next" moves focus to the next field (a read-only one is passed over); the keyboard stays up.
 //   3. A Text in a taller box (height, minHeight) starts at the top, as on Android.
 //   4. A TextField draws letterSpacing and textDecorationLine (a Text beside it for comparison).
-//   5. numberOfLines={0} is no limit (React Native's meaning).
+//   5. numberOfLines={0} is no limit (React Native's meaning). On its own screen (/dev/text-polish/lines): Android's
+//      BasicText throws on maxLines 0 until ZnTemplate.kt maps it, and this screen must open there.
 //   6. A field on a hidden tab, or scrolled out of its Scroll, doesn't take the taps of a Pressable drawn there.
+//   7. A chat composer (ZeroBill's): a multiline field, flex 1, minHeight 44, maxHeight 120, in a Row aligned to the
+//      bottom; it grows a line at a time to 120 and then scrolls inside.
+//   8. returnKeyType="next" in a List's rows goes on into the rows below the List's edge (Compose's LazyColumn
+//      lays the next row out for the focus search).
+//   9. A multiline field with maxHeight 112 in a Modal (ZeroBill's review box).
+//  10. A multiline field with maxHeight 70 in a List's rows: each row is 70 + its padding tall, not its whole text.
 //
 //   adb shell am start -a android.intent.action.VIEW -d "zn://sample/dev/text-polish" dev.zeronative.sample
-import { Column, Pressable, Row, Scroll, Tabs, Text, TextField } from "@zeronative/ui"
-import { nav, signal } from "@zeronative/core"
+//   (iOS passes over the read-only field in §2; Compose can focus a readOnly field, so Android may stop there.)
+import { Column, List, Modal, Pressable, Row, Scroll, Tabs, Text, TextField } from "@zeronative/ui"
+import { createRef, nav, signal, type TextFieldHandle } from "@zeronative/core"
 import { c } from "./tokens"
 
 const field = { fontSize: 16, color: c.ink, paddingVertical: 8, paddingHorizontal: 10, borderRadius: 8, backgroundColor: c.pillBg }
@@ -24,6 +32,10 @@ function TpTitle(props: { text: string }) {
   )
 }
 
+const listFields = Array.from({ length: 8 }, (_, i) => ({ id: `r${i + 1}` }))
+const listNotes = [{ id: "n1" }, { id: "n2" }]
+const sixLines = "One\nTwo\nThree\nFour\nFive\nSix"
+
 export function TextPolishLabScreen() {
   const note = signal("One\nTwo\nThree\nFour\nFive\nSix\nSeven\nEight")
   const focus = signal("none")
@@ -31,6 +43,11 @@ export function TextPolishLabScreen() {
   const tab = signal(0)
   const bigTaps = signal(0)
   const payTaps = signal(0)
+  const chat = signal("")
+  const review = signal("")
+  const reviewOpen = signal(false)
+  const gRef = createRef<TextFieldHandle>()
+  const gFocuses = signal(0)
   const focused = (name: string) => {
     focus.set(name)
     say(`focus ${name}`)
@@ -113,6 +130,21 @@ export function TextPolishLabScreen() {
         <TextField testID="tp-next-c" placeholder="C (next, multiline)" multiline returnKeyType="next" onFocus={() => focused("C")} style={field} />
         <TextField testID="tp-next-d" placeholder="D (done)" returnKeyType="done" onFocus={() => focused("D")} style={field} />
         <Text testID="tp-focus" fontSize={12} color={c.muted}>{`focus ${focus()} submits ${submits()}`}</Text>
+        {/* onSubmitEditing focusing a field by its ref (ZeroBill's forms) on top of "next": JS's field wins (E → G, F
+            passed over); when it is the next field anyway (F → G), G is focused once. */}
+        <TextField testID="tp-jump-e" placeholder="E (next, JS focuses G)" returnKeyType="next" onFocus={() => focused("E")} onSubmitEditing={() => gRef.current?.focus()} style={field} />
+        <TextField testID="tp-jump-f" placeholder="F (next, JS focuses G)" returnKeyType="next" onFocus={() => focused("F")} onSubmitEditing={() => gRef.current?.focus()} style={field} />
+        <TextField
+          testID="tp-jump-g"
+          ref={gRef}
+          placeholder="G (done)"
+          onFocus={() => {
+            gFocuses.set((n) => n + 1)
+            focused("G")
+          }}
+          style={field}
+        />
+        <Text testID="tp-jump" fontSize={12} color={c.muted}>{`G focused ${gFocuses()}`}</Text>
 
         <TpTitle text="3. Text in a taller box: at the top" />
         <Row style={{ gap: 8 }}>
@@ -143,11 +175,102 @@ export function TextPolishLabScreen() {
           style={field}
         />
 
-        <TpTitle text="5. numberOfLines={0}" />
-        <Text testID="tp-lines0" numberOfLines={0} fontSize={14} color={c.ink} style={{ width: 200, backgroundColor: "#E0E7FF" }}>
-          numberOfLines zero means no limit, so this sentence wraps over several lines.
-        </Text>
+        <Pressable testID="tp-open-lines" onPress={() => nav.push("textPolishLinesLab")} style={{ padding: 8, borderRadius: 8, backgroundColor: c.pillBg }}>
+          <Text fontSize={13} color={c.ink}>5. numberOfLines 0 (own screen)</Text>
+        </Pressable>
+
+        <TpTitle text="7. Chat composer (maxHeight 120)" />
+        <Row style={{ alignItems: "flex-end", paddingHorizontal: 10, paddingVertical: 8, backgroundColor: c.white, borderRadius: 8 }}>
+          <TextField
+            testID="tp-chat"
+            value={chat()}
+            onChangeText={(t) => chat.set(t)}
+            placeholder="Type your message here..."
+            multiline
+            maxLength={1000}
+            fontSize={15}
+            color={c.ink}
+            style={{ flex: 1, minHeight: 44, maxHeight: 120, borderRadius: 22, paddingHorizontal: 16, paddingTop: 11, paddingBottom: 11, backgroundColor: c.pillBg, marginEnd: 8 }}
+          />
+          <Pressable testID="tp-chat-send" onPress={() => say(`chat send ${chat().split("\n").length} lines`)} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: "#2563EB", alignItems: "center", justifyContent: "center" }}>
+            <Text fontSize={16} color={c.white}>↑</Text>
+          </Pressable>
+        </Row>
+
+        <TpTitle text="8. next in a List (rows below its edge)" />
+        <List
+          testID="tp-list"
+          data={listFields}
+          key={(r) => r.id}
+          style={{ height: 150, borderRadius: 8, backgroundColor: c.white }}
+          row={(r) => (
+            <Column style={{ paddingHorizontal: 8, paddingVertical: 4 }}>
+              <TextField testID="tp-row" placeholder={`Row ${r.id} (next)`} returnKeyType="next" onFocus={() => focused(r.id)} style={field} />
+            </Column>
+          )}
+        />
+
+        <TpTitle text="10. Multiline (maxHeight 70) in List rows" />
+        <List
+          data={listNotes}
+          key={(r) => r.id}
+          style={{ height: 200, borderRadius: 8, backgroundColor: c.white }}
+          row={(_r) => (
+            <Column style={{ paddingHorizontal: 8, paddingVertical: 4 }}>
+              <TextField testID="tp-row-note" value={sixLines} multiline style={{ ...field, maxHeight: 70 }} />
+            </Column>
+          )}
+        />
+        <Text testID="tp-under-list-notes" fontSize={12} color={c.muted}>Each row above is about 78 pt tall.</Text>
+
+        <TpTitle text="9. Multiline in a Modal (maxHeight 112)" />
+        <Pressable testID="tp-open-review" onPress={() => reviewOpen.set(true)} style={{ padding: 8, borderRadius: 8, backgroundColor: c.pillBg }}>
+          <Text fontSize={13} color={c.ink}>Open the review box</Text>
+        </Pressable>
       </Scroll>
+      <Modal visible={reviewOpen()} transparent animationType="fade" onRequestClose={() => reviewOpen.set(false)}>
+        <Column justifyContent="flex-end" style={{ flex: 1, backgroundColor: "#00000080" }}>
+          <Column style={{ backgroundColor: c.white, padding: 16, gap: 12, borderTopLeftRadius: 16, borderTopRightRadius: 16 }}>
+            <Text fontSize={16} fontWeight={700} color={c.ink}>Review</Text>
+            <TextField
+              testID="tp-review"
+              value={review()}
+              onChangeText={(t) => review.set(t)}
+              multiline
+              placeholder="Tell us more"
+              fontSize={15}
+              color={c.ink}
+              style={{ width: "100%", minHeight: 48, maxHeight: 112, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, borderWidth: 1, borderColor: "#D0D5DD" }}
+            />
+            <Text testID="tp-under-review" fontSize={12} color={c.muted}>This line stays under the review box.</Text>
+            <Pressable testID="tp-close-review" onPress={() => reviewOpen.set(false)} style={{ padding: 10, borderRadius: 8, backgroundColor: c.pillBg, alignItems: "center" }}>
+              <Text fontSize={14} color={c.ink}>Close</Text>
+            </Pressable>
+          </Column>
+        </Column>
+      </Modal>
+    </Column>
+  )
+}
+
+// §5 on its own screen (route textPolishLinesLab): numberOfLines={0} is no limit. Android throws here until
+// ZnTemplate.kt maps 0 to no limit (BasicText takes maxLines of 1 or more).
+export function TextPolishLinesLabScreen() {
+  return (
+    <Column style={{ flex: 1, backgroundColor: c.bg, padding: 16, gap: 14 }}>
+      <Row style={{ gap: 8, alignItems: "center" }}>
+        <Pressable onPress={() => nav.back()} style={{ paddingHorizontal: 8, paddingVertical: 4 }}>
+          <Text fontSize={20} fontWeight={700} color={c.ink}>
+            ←
+          </Text>
+        </Pressable>
+        <Text testID="tp-lines-title" fontSize={18} fontWeight={700} color={c.ink}>
+          numberOfLines 0
+        </Text>
+      </Row>
+      <Text testID="tp-lines0" numberOfLines={0} fontSize={14} color={c.ink} style={{ width: 200, backgroundColor: "#E0E7FF" }}>
+        numberOfLines zero means no limit, so this sentence wraps over several lines.
+      </Text>
     </Column>
   )
 }
