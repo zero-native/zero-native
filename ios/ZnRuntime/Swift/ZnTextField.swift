@@ -193,6 +193,8 @@ enum ZnFieldFocus {
         weak var view: UIView?
         /// A field of a List row JS hasn't mounted yet (a placeholder of its template): its events go nowhere.
         let placeholder: Bool
+        /// A box's: the Pressables it is drawn inside (znPressAncestors, ZnTouchControl.hitTest).
+        var ancestors: Set<ObjectIdentifier> = []
         init(_ v: UIView, placeholder: Bool = false) { view = v; self.placeholder = placeholder }
     }
 
@@ -202,20 +204,24 @@ enum ZnFieldFocus {
         views = views.filter { $0.value.view != nil && $0.value.view !== v }
         views[key(inst, node)] = WeakView(v, placeholder: inst.id == 0)
     }
-    static func registerBox(_ v: UIView, _ key: String) {
+    static func registerBox(_ v: UIView, _ key: String, ancestors: [ObjectIdentifier] = []) {
         boxes = boxes.filter { $0.value.view != nil }
-        boxes[key] = WeakView(v)
+        let w = WeakView(v)
+        w.ancestors = Set(ancestors)
+        boxes[key] = w
     }
     /// The boxes of the fields in [window] under [point] (window coordinates), with the view controller each is in: a
     /// Pressable around a field leaves the touch to it (ZnTouchControl.hitTest). A tappable Text with span links puts
     /// its frame here too ("text:" keys, ZnTextLinkPress), and so does a Switch or Checkbox ("toggle:", ZnToggleTap).
     /// A box counts only where it shows: one scrolled out of its Scroll or List (clipped there), or on a hidden tab (its
     /// marker hides), took the taps of the Pressables drawn there instead (a fixed Pay button over a form's next fields;
-    /// a card on one tab where another tab's search field was; 2026-11-24).
-    static func boxes(at point: CGPoint, in window: UIWindow) -> [(frame: CGRect, controller: UIViewController?)] {
+    /// a card on one tab where another tab's search field was; 2026-11-24). With its view and the Pressables it is
+    /// inside, so a Pressable leaves the touch only to a box inside it or drawn over it (ZnTouchControl.hitTest).
+    static func boxes(at point: CGPoint, in window: UIWindow)
+        -> [(frame: CGRect, controller: UIViewController?, view: UIView, ancestors: Set<ObjectIdentifier>)] {
         boxes.values.compactMap { w in
             guard let v = w.view, v.window === window, !v.isHidden, znShows(v, v.bounds, at: point, upTo: nil) else { return nil }
-            return (v.convert(v.bounds, to: window), znNearestController(v))
+            return (v.convert(v.bounds, to: window), znNearestController(v), v, w.ancestors)
         }
     }
 
@@ -430,7 +436,7 @@ struct ZnFieldBoxMarker: UIViewRepresentable {
     func updateUIView(_ v: UIView, context: Context) {
         let hidden = off || context.environment.znInHiddenTab
         if v.isHidden != hidden { v.isHidden = hidden }  // hidden boxes are left out of ZnFieldFocus.boxes(at:)
-        ZnFieldFocus.registerBox(v, key)
+        ZnFieldFocus.registerBox(v, key, ancestors: context.environment.znPressAncestors)
     }
 }
 

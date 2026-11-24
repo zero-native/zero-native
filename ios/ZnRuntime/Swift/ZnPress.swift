@@ -350,11 +350,18 @@ final class ZnTouchControl: UIView {
                 }
             }
         }
-        // A TextField inside the Pressable (a dialog's note field in a tappable dim, a search field in a tappable row):
-        // the field takes the touch, as on Android, where the innermost one gets it. It never could (2026-11-19).
-        for box in ZnFieldFocus.boxes(at: p, in: window)
-        where box.controller === screen && (inSlop || box.frame.width * box.frame.height < area) {
-            return nil
+        // A TextField, a tappable Text or a Switch / Checkbox inside the Pressable (a dialog's note field in a tappable
+        // dim, a search field or a Switch in a tappable row): it takes the touch, as on Android, where the innermost one
+        // gets it (A53 for the controls). Never one that isn't inside it, unless it is drawn over it: a Switch row under
+        // a dialog's tap-outside dim or a fixed Pay bar keeps the tap for the dim or the bar, as on Android. "Smaller"
+        // stood for "inside" until 2026-11-24 (a dim over a settings list then closed nothing). In our slop: any does.
+        for box in ZnFieldFocus.boxes(at: p, in: window) where box.controller === screen {
+            if inSlop || own.map({ box.ancestors.contains($0) }) == true { return nil }
+            if let above = znDrawnAbove(box.view, self) {
+                if above { return nil }
+            } else if box.frame.width * box.frame.height < area {
+                return nil  // their order can't be told (one holds the other): as before, by size
+            }
         }
         // A scroll view that can scroll, or a plugin's view that takes touches, inside this Pressable under the finger
         // (a chip rail or a Carousel in a card): it gets the touch, as on Android. The scroll still presses this one
@@ -395,15 +402,20 @@ final class ZnTouchControl: UIView {
     static let live = NSHashTable<ZnTouchControl>.weakObjects()
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        if window != nil { ZnTouchControl.live.add(self) } else { ZnTouchControl.live.remove(self) }
+        if let window { ZnTouchControl.live.add(self); ZnTouchDown.watch(window) } else { ZnTouchControl.live.remove(self) }
     }
 
+    /// The long press time: UIKit's (UILongPressGestureRecognizer) and RN iOS's 0.5 s. Android takes the system's
+    /// (ViewConfiguration.getLongPressTimeout: 400 ms on Android 12 and later, 500 ms before).
+    static let longPressTime: TimeInterval = 0.5
+
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        // Inside a Scroll or List UIKit hands the touch over after its content delay (~150 ms): the touch's own time says
-        // when the finger went down, so onLongPress comes 0.5 s after it, not 0.65 s (as Android, which has no delay).
-        // Capped below the long press, so an odd timestamp can't fire it at once.
-        let since = touches.first.map { CACurrentMediaTime() - $0.timestamp } ?? 0
-        let late = min(max(self.late, since, 0), 0.4)
+        // Inside a Scroll or List UIKit hands the touch over after its content delay (~150 ms): ZnTouchDown saw when the
+        // finger went down, so onLongPress comes 0.5 s after it, not 0.65 s (as Android, which has no delay). Not the
+        // touch's timestamp: UIKit moves it on with every small move of a resting finger. Capped below the long
+        // press, so an odd time can't fire it at once.
+        let since = touches.first.map { CACurrentMediaTime() - (ZnTouchDown.time($0) ?? $0.timestamp) } ?? 0
+        let late = min(max(self.late, since, 0), Self.longPressTime - 0.1)
         self.late = 0
         guard isEnabled, !active else { return }
         let at = touches.first?.location(in: self) ?? CGPoint(x: bounds.midX, y: bounds.midY)
@@ -422,7 +434,7 @@ final class ZnTouchControl: UIView {
                 }
             }
         } else if longPressOn() {
-            timer = Timer.scheduledTimer(withTimeInterval: max(0.01, 0.5 - late), repeats: false) { [weak self] _ in
+            timer = Timer.scheduledTimer(withTimeInterval: max(0.01, Self.longPressTime - late), repeats: false) { [weak self] _ in
                 guard let self else { return }
                 self.handled = true
                 if self.haptic { UIImpactFeedbackGenerator(style: .medium).impactOccurred() }
@@ -476,4 +488,70 @@ extension EnvironmentValues {
         r = next
     }
     return nil
+}
+
+/// Is [a] drawn over [b]? UIKit's order: at the first view holding both, the branch to [a] comes later in its
+/// subviews (SwiftUI adds its platform views in drawing order). nil when one holds the other, or they share no window.
+@MainActor func znDrawnAbove(_ a: UIView, _ b: UIView) -> Bool? {
+    var chain: [UIView] = []
+    var u: UIView? = a
+    while let v = u { chain.append(v); u = v.superview }
+    var below: UIView = b
+    while let up = below.superview {
+        if let i = chain.firstIndex(where: { $0 === up }) {
+            guard i > 0, chain[i - 1] !== below else { return nil }  // one holds the other
+            let subs = up.subviews
+            guard let ia = subs.firstIndex(where: { $0 === chain[i - 1] }), let ib = subs.firstIndex(where: { $0 === below }) else { return nil }
+            return ia > ib
+        }
+        below = up
+    }
+    return nil  // no shared window
+}
+
+/// When each finger went down, seen by a recognizer on the window that only watches: it gets the touch at once, also
+/// under a scroll view's content delay, and never begins, delays or cancels anything. ZnTouchControl times its long
+/// press and repeat from it (a resting finger's small moves change UITouch.timestamp, so that time was too late).
+final class ZnTouchDown: UIGestureRecognizer {
+    private static let downs = NSMapTable<UITouch, NSNumber>.weakToStrongObjects()
+    private var held = 0
+
+    /// When [t] went down (CACurrentMediaTime), if a window watched it.
+    static func time(_ t: UITouch) -> CFTimeInterval? { downs.object(forKey: t)?.doubleValue }
+
+    /// Watches [window] (once).
+    static func watch(_ window: UIWindow) {
+        guard !(window.gestureRecognizers ?? []).contains(where: { $0 is ZnTouchDown }) else { return }
+        window.addGestureRecognizer(ZnTouchDown())
+    }
+
+    init() {
+        super.init(target: nil, action: nil)
+        cancelsTouchesInView = false
+        delaysTouchesBegan = false
+        delaysTouchesEnded = false
+    }
+
+    override func canPrevent(_ other: UIGestureRecognizer) -> Bool { false }
+    override func canBePrevented(by other: UIGestureRecognizer) -> Bool { false }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        let now = NSNumber(value: CACurrentMediaTime())
+        for t in touches { Self.downs.setObject(now, forKey: t) }
+        held += touches.count
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) { lift(touches) }
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) { lift(touches) }
+
+    private func lift(_ touches: Set<UITouch>) {
+        // Kept until the touch is gone (the press under a content delay may read it at the lift).
+        held -= touches.count
+        if held <= 0 { held = 0; state = .failed }
+    }
+
+    override func reset() {
+        super.reset()
+        held = 0
+    }
 }

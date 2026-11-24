@@ -51,6 +51,11 @@ private struct ZnToggleTap: ViewModifier {
         .background(ZnFieldBoxMarker(key: "toggle:" + ZnFieldFocus.key(inst, s.index),
                                      off: touchOff || disabled || s.onValueChange == 0))
         .accessibilityElement()
+        // VoiceOver's double tap turns it, said here: the Button's own action may not reach the element made above.
+        .accessibilityAction {
+            guard takes else { return }
+            ctx.send(inst.id, s.onValueChange, .bool(!on))
+        }
         .accessibilityAddTraits(trait)
         .accessibilityValue(on ? "1" : "0")
         // accessibilityLabel (also from a slot), hint and testID (ZnAccessibility.swift).
