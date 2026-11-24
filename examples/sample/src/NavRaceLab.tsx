@@ -13,6 +13,8 @@ import { Keyboard, nav, signal, toast } from "@zeronative/core"
 import { c } from "./tokens"
 
 const DELAYS = [0, 50, 100, 200, 300, 400, 500, 600, 700, 800, 900]
+/** With params {"quick": true} (the UI test: tools/ios-ui-test.ts stops a test after 2 minutes): 16 cases, about 55 s. */
+const QUICK = [0, 200, 400, 700]
 const SETTLE = 1300
 
 const sleep = (ms: number) => new Promise<void>((done) => setTimeout(done, ms))
@@ -28,7 +30,7 @@ function NrButton(props: { label: string; onPress: () => void }) {
   )
 }
 
-export function NavRaceLabScreen() {
+export function NavRaceLabScreen(props: { quick?: boolean }) {
   const result = signal("not run")
   const lines = signal<string[]>([])
   const say = (line: string) => {
@@ -49,7 +51,7 @@ export function NavRaceLabScreen() {
     const base = nav.depth()
     let ok = 0
     let all = 0
-    for (const ms of DELAYS) {
+    for (const ms of props.quick ? QUICK : DELAYS) {
       // push, then push again
       nav.push("navRaceTarget", { step: 1 })
       await sleep(ms)
