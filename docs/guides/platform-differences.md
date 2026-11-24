@@ -76,12 +76,14 @@ marked **gap**.
   - the per-frame motion cost: about 5 ms of main thread per frame for 30 bound elements (4.8 ms Release, up to 5.9
     with blur, 3D and corners; about 2 ms of that is a fixed cost per frame, then about 0.1 ms an element), measured
     at 60 Hz on the simulator, not on a 120 Hz iPhone.
-- **gap: a Switch or Checkbox inside a Pressable:** on iOS the row takes the tap and the control doesn't turn; on
-  Android both fire (A53, open).
+- **A Switch or Checkbox inside a Pressable:** on iOS the control takes its own tap and the row doesn't fire
+  (innermost wins, since 2026-11-24); on Android both fire until ZnSwitch / ZnCheckbox keep the touch (A53).
 - **gap: a route with `transition: "modal"` doesn't close on a drag down** (iOS's own modals do). It closes with
   `nav.back()` or a Back button; Android's system back closes it.
-- **gap: VoiceOver reaches the screen under a see-through screen** (the TSX image viewer; A100, open). Check such
-  screens with VoiceOver before you ship them.
+- **The screens under a see-through screen and VoiceOver:** route option `accessibilityHidesBelow: true` (with
+  `transparent: true`; set on the TSX image viewer's route) hides them from VoiceOver while it shows, and focus goes
+  back to the opener on close (iOS, 2026-11-24). Android ignores the option for now, so TalkBack still reaches them
+  (A100).
 - **Known issue: `<Sheet motion={m}>` after a fast flick close** gives the progress in steps (seen on an iPhone), so
   anything bound to it moves in steps too.
 
@@ -140,8 +142,8 @@ marked **gap**.
     (XCUITest: `otherElements[id]`). Fields and NativeView carry it on their UIView.
   - A Pressable's accessibility frame includes its touch area (`hitSlop`, grown to the 44 pt minimum; Android: the
     layout bounds only).
-  - **gap:** with a see-through screen open (the TSX image viewer), VoiceOver still reaches the screen below (A100,
-    open).
+  - With `accessibilityHidesBelow: true` on a see-through route (the TSX image viewer has it), VoiceOver skips the
+    screens below and focus returns to the opener on close; Android ignores it for now (A100).
 - **Touches:**
   - Every Pressable takes taps up to Apple's 44 pt minimum (its `hitSlop` grown evenly; `hitSlop` only adds). Where
     two grown areas meet, the nearer Pressable takes the tap. Android uses Compose's 48 dp.

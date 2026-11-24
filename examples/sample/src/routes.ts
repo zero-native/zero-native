@@ -78,7 +78,6 @@ import { PaintLabScreen, PaintFadeListLabScreen } from "./PaintLab"
 import { TextPolishLabScreen, TextPolishLinesLabScreen, TextSpacingLabScreen } from "./TextPolishLab"
 import { NavRaceLabScreen, NavRaceTargetScreen } from "./NavRaceLab"
 import { TouchFixLabScreen } from "./TouchFixLab"
-import { ChecksLabScreen } from "./ChecksLab"
 import { ChecksLabScreen, ChecksSnapLabScreen } from "./ChecksLab"
 
 export const routes = defineRoutes({
