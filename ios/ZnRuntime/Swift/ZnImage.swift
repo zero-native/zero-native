@@ -281,7 +281,9 @@ struct ZnImageView: View {
 /// A picture that wasn't in memory (from the disk, the network or a file) fades in over 150 ms, linear, as Coil's
 /// crossfade on Android (ZnFetch.kt IMAGE_FADE_MS); one from memory shows at once. With animations off (Reduce Motion)
 /// it shows at once too. A new picture in the box starts its own fade: the box shows nothing or the shimmer between two
-/// pictures that aren't in memory, so this view is made again.
+/// pictures that aren't in memory, so this view is made again. A picture already shown (from memory) never fades
+/// again in the same view, and a fade that turns on while the view is on screen starts there (not only on appear), so
+/// a picture is never left at opacity 0 (a memory hit evicted before its load ran).
 struct ZnImageFadeIn: ViewModifier {
     let on: Bool
     @State private var shown = false
@@ -289,10 +291,13 @@ struct ZnImageFadeIn: ViewModifier {
     func body(content: Content) -> some View {
         content
             .opacity(on && !shown ? 0 : 1)
-            .onAppear {
-                guard on, !shown else { return }
-                if znAnimationsOff() { shown = true } else { withAnimation(.linear(duration: 0.15)) { shown = true } }
-            }
+            .onAppear { start() }
+            .onChange(of: on) { _, _ in start() }
+    }
+
+    private func start() {
+        guard !shown else { return }
+        if !on || znAnimationsOff() { shown = true } else { withAnimation(.linear(duration: 0.15)) { shown = true } }
     }
 }
 
