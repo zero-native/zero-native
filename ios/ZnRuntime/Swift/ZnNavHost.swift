@@ -267,7 +267,8 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
             let layers = g.map { i in
                 box.layers.first { $0.entry == stack[i] && $0.vc === contents[i] }
                     ?? ZnSeeThroughBox.Layer(entry: stack[i], vc: contents[i], seeThrough: transparent[i] && i > g.lowerBound,
-                                             transition: app.route(of: stack[i])?.transition ?? .push)
+                                             transition: app.route(of: stack[i])?.transition ?? .push,
+                                             hidesBelow: app.route(of: stack[i])?.accessibilityHidesBelow == true)
             }
             if navChanges && animated && box === shownBox && box !== vcs.last {
                 pending[ObjectIdentifier(box)] = (box, layers, false)  // UIKit covers it now: changed once covered

@@ -32,10 +32,12 @@ removed. Android and iOS (see "On iOS").
 ```ts
 import { ImageViewerScreen } from "@zeronative/image-viewer/screen"
 
-imageViewer: { path: "/image-viewer", screen: ImageViewerScreen, transparent: true, safeArea: "none", statusBar: "light", restore: false, transition: "none" },
+imageViewer: { path: "/image-viewer", screen: ImageViewerScreen, transparent: true, accessibilityHidesBelow: true, safeArea: "none", statusBar: "light", restore: false, transition: "none" },
 ```
 
 `transparent: true` (registry 24): the screen below stays drawn while the picture flies and the background fades.
+`accessibilityHidesBelow: true`: VoiceOver skips the screen below while the viewer shows (TalkBack too, once Android
+reads it; an app built before it ignores it).
 `safeArea: "none"`: the pictures go under the status bar; the close button keeps clear of it by itself.
 `restore: false`: the viewer's pictures live in JS memory, so after a kill it does not come back.
 

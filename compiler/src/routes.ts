@@ -32,6 +32,8 @@ export interface RouteEntry {
   secure?: boolean
   /** true: the screen below stays drawn under this one (a photo viewer, a dialog drawn in JS). Registry 24. */
   transparent?: boolean
+  /** true (with transparent): screen readers skip the screens drawn under this one while it shows. */
+  accessibilityHidesBelow?: boolean
   /** The screen's tab names, first = the default tab (useTabs, host API 8). */
   tabs?: string[]
 }
@@ -39,7 +41,7 @@ export interface RouteEntry {
 /** "<plugin>.<name>": the name of a native screen or view. */
 export const NATIVE_NAME = /^[a-z][a-z0-9-]*\.[A-Za-z0-9_.-]+$/
 const TRANSITIONS = ["push", "modal", "fade", "none"]
-const OPTIONS = ["transition", "safeArea", "statusBar", "deepLink", "keyboard", "restore", "secure", "tabs", "transparent"]
+const OPTIONS = ["transition", "safeArea", "statusBar", "deepLink", "keyboard", "restore", "secure", "tabs", "transparent", "accessibilityHidesBelow"]
 /** A tab name: also the last path segment of a link to that tab. */
 const TAB_NAME = /^[A-Za-z][A-Za-z0-9_]*$/
 
@@ -127,6 +129,9 @@ export function readRoutes(source: string, fileName: string): RouteEntry[] | nul
     if (component === null && native === null) fail(p, `route "${name}" needs a screen`)
     if (native !== null && path === "/") fail(p, `route "${name}": the start route can't be a native screen`)
     if (native !== null && options.tabs !== undefined) fail(p, `route "${name}": a native screen can't have tabs`)
+    if (options.accessibilityHidesBelow === true && options.transparent !== true) {
+      fail(p, `route "${name}": accessibilityHidesBelow is for a transparent: true route (an opaque screen hides the ones below anyway)`)
+    }
     if (options.tabs !== undefined && path!.split("/").includes(":tab")) {
       fail(p, `route "${name}": a route with tabs can't have a :tab param (a link gives the tab as "tab")`)
     }
@@ -154,6 +159,7 @@ export function readRoutes(source: string, fileName: string): RouteEntry[] | nul
       restore: (options.restore as boolean) ?? true,
       ...(options.secure === true ? { secure: true } : {}),
       ...(options.transparent === true ? { transparent: true } : {}),
+      ...(options.accessibilityHidesBelow === true ? { accessibilityHidesBelow: true } : {}),
       ...(tabs ? { tabs: [...tabs] } : {}),
     })
   }
@@ -189,7 +195,8 @@ export function readRoutes(source: string, fileName: string): RouteEntry[] | nul
     const ok =
       key === "transition" ? TRANSITIONS.includes(v as string)
       : key === "statusBar" ? v === "dark" || v === "light"
-      : key === "deepLink" || key === "restore" || key === "secure" || key === "transparent" ? typeof v === "boolean"
+      : key === "deepLink" || key === "restore" || key === "secure" || key === "transparent" || key === "accessibilityHidesBelow"
+        ? typeof v === "boolean"
       : key === "keyboard" ? v === "resize" || v === "none"
       : key === "tabs" ? checkTabs(v, at)
       : v === "all" || v === "none" ||

@@ -42,6 +42,13 @@ export interface RouteOptions {
    * before nav.back(). Give its root no background (or a see-through one). An older app draws it as a normal screen.
    */
   transparent?: boolean
+  /**
+   * With `transparent: true`: VoiceOver / TalkBack skip the screens drawn under this one while it shows (as RN's
+   * accessibilityViewIsModal), so a screen-reader user can't wander onto the buttons behind a photo viewer. Off by
+   * default: a see-through screen that only covers part of the screen below (a tooltip, a toast drawn in JS) leaves
+   * it readable. Android ignores it for now (the screens below stay in TalkBack's tree there).
+   */
+  accessibilityHidesBelow?: boolean
 }
 
 export interface RouteDef<Path extends string = string, Props = any> extends RouteOptions {

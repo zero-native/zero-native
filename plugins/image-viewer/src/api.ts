@@ -220,7 +220,7 @@ function show(route: string, params: Record<string, unknown>, held: string | und
   } catch (e) {
     const why = e instanceof Error ? e.message : String(e)
     const hint = why.includes("unknown route")
-      ? `. Add to routes.ts: ${route}: { path: "/image-viewer", screen: ImageViewerScreen, transparent: true, safeArea: "none", statusBar: "light", restore: false } (ImageViewerScreen from "@zeronative/image-viewer/screen")`
+      ? `. Add to routes.ts: ${route}: { path: "/image-viewer", screen: ImageViewerScreen, transparent: true, accessibilityHidesBelow: true, safeArea: "none", statusBar: "light", restore: false } (ImageViewerScreen from "@zeronative/image-viewer/screen")`
       : ""
     throw new Error(`ImageViewer.open: ${why}${hint}`)
   }

@@ -29,6 +29,8 @@ struct ZnRoute {
     let secure: Bool
     /// Registry 24: the screen below stays drawn under this one (the `transparent` option).
     let transparent: Bool
+    /// With `transparent`: VoiceOver skips the screens drawn under this one while it shows (`accessibilityHidesBelow`).
+    let accessibilityHidesBelow: Bool
 
     init(json r: [String: Any]) {
         name = r["name"] as? String ?? ""
@@ -49,6 +51,7 @@ struct ZnRoute {
         restore = r["restore"] as? Bool ?? true
         secure = r["secure"] as? Bool ?? false
         transparent = r["transparent"] as? Bool ?? false
+        accessibilityHidesBelow = r["accessibilityHidesBelow"] as? Bool ?? false
     }
 }
 

@@ -58,6 +58,24 @@ describe("routes", () => {
     expect(err(`defineRoutes({ home: { path: "/", screen: HomeScreen }, a: { path: "/a", screen: HomeScreen, transparent: "yes" } })`)).toContain("transparent")
   })
 
+  test("accessibilityHidesBelow: sent only when true, only with transparent", () => {
+    const routes = read(`export const routes = defineRoutes({
+      home: { path: "/", screen: HomeScreen },
+      viewer: { path: "/viewer", screen: HomeScreen, transparent: true, accessibilityHidesBelow: true },
+      tip: { path: "/tip", screen: HomeScreen, transparent: true, accessibilityHidesBelow: false },
+    })`)
+    expect(routes![1]).toMatchObject({ name: "viewer", transparent: true, accessibilityHidesBelow: true })
+    expect("accessibilityHidesBelow" in routes![0]).toBe(false)
+    expect("accessibilityHidesBelow" in routes![2]).toBe(false)
+    const home = `home: { path: "/", screen: HomeScreen }`
+    expect(err(`defineRoutes({ ${home}, a: { path: "/a", screen: HomeScreen, accessibilityHidesBelow: true } })`)).toContain(
+      "accessibilityHidesBelow is for a transparent: true route",
+    )
+    expect(err(`defineRoutes({ ${home}, a: { path: "/a", screen: HomeScreen, transparent: true, accessibilityHidesBelow: 1 } })`)).toContain(
+      "unsupported accessibilityHidesBelow",
+    )
+  })
+
   test("native screen errors", () => {
     const home = `home: { path: "/", screen: HomeScreen }`
     expect(err(`defineRoutes({ ${home}, a: { path: "/a", screen: HomeScreen, native: "x.y" } })`)).toContain("both screen and native")

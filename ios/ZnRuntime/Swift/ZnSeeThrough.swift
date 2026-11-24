@@ -19,6 +19,8 @@
 // A stack whose bottom entry is see-through starts its box with it (nothing below: the window's background).
 // The see-through screen gets no shared elements (Android sets LocalZnSharedVisibility = null): a later sharedTag
 // flight must skip transparent routes.
+// - `accessibilityHidesBelow: true` on its route: VoiceOver skips the screens under it while it shows (A100). They stay
+//   drawn; their views are hidden from accessibility and the top one is modal (hideBelow). Off by default.
 import SwiftUI
 import UIKit
 
@@ -30,16 +32,19 @@ final class ZnSeeThroughBox: UIViewController {
         let vc: UIViewController
         let seeThrough: Bool
         let transition: ZnRoute.Transition
+        /// Its route's `accessibilityHidesBelow`: VoiceOver skips the screens under it while it shows.
+        let hidesBelow: Bool
         /// What the box moves: the screen's view itself (opaque), or a pass-through view holding it (see-through).
         var holder: UIView?
         /// The back swipe took it off screen already: its close doesn't animate again.
         var dragged = false
 
-        init(entry: UInt32, vc: UIViewController, seeThrough: Bool, transition: ZnRoute.Transition) {
+        init(entry: UInt32, vc: UIViewController, seeThrough: Bool, transition: ZnRoute.Transition, hidesBelow: Bool = false) {
             self.entry = entry
             self.vc = vc
             self.seeThrough = seeThrough
             self.transition = transition
+            self.hidesBelow = hidesBelow
         }
     }
 
@@ -67,6 +72,7 @@ final class ZnSeeThroughBox: UIViewController {
         super.viewDidLoad()
         view.backgroundColor = .clear
         for l in layers { attach(l, above: nil, top: true) }
+        hideBelow()
     }
 
     // The top screen's status bar: a see-through screen's route `statusBar` (or its <StatusBar>) wins while it shows.
@@ -96,7 +102,29 @@ final class ZnSeeThroughBox: UIViewController {
             if item.seeThrough { open(item, over: next.count > 1 ? next[next.count - 2].entry : nil, animated: animated && next.count > 1) }
         }
         layers = next
+        hideBelow()
         ZnSystemBars.refreshStatusBar()
+    }
+
+    /// VoiceOver: the screens under the topmost see-through one whose route says `accessibilityHidesBelow` are hidden
+    /// (accessibilityElementsHidden on their views), and that one is modal, so VoiceOver keeps to it as UIKit's own
+    /// covered screens; the rest are read as before. A change moves VoiceOver to the screen now on top (screenChanged),
+    /// as a push does.
+    private func hideBelow() {
+        guard isViewLoaded else { return }
+        let top = layers.lastIndex { $0.seeThrough && $0.hidesBelow }
+        var changed = false
+        for (i, l) in layers.enumerated() {
+            guard let h = l.holder else { continue }
+            let hidden = top.map { i < $0 } ?? false
+            let modal = i == top
+            if h.accessibilityElementsHidden != hidden || h.accessibilityViewIsModal != modal { changed = true }
+            h.accessibilityElementsHidden = hidden
+            h.accessibilityViewIsModal = modal
+        }
+        guard changed else { return }
+        print("zn t=\(ZnDebug.ms()) see-through: VoiceOver \(top.map { "skips the \($0) screen\($0 == 1 ? "" : "s") under \(layers[$0].entry)" } ?? "reads every screen")")
+        UIAccessibility.post(notification: .screenChanged, argument: nil)
     }
 
     /// Takes [vc] out at once (it moves to another box).
@@ -153,6 +181,9 @@ final class ZnSeeThroughBox: UIViewController {
 
     private func close(_ l: Layer, animated: Bool) {
         print("zn t=\(ZnDebug.ms()) see-through: \(l.entry) closes")
+        // Out of VoiceOver while it fades: the screens below are read again at once (hideBelow).
+        l.holder?.accessibilityViewIsModal = false
+        l.holder?.accessibilityElementsHidden = true
         l.vc.willMove(toParent: nil)
         let done = {
             l.holder?.removeFromSuperview()

@@ -46,6 +46,7 @@ test("sampleOptions") {
     yes(routes.count > 10, "the sample has its routes")
     eq(routes.filter(\.secure).map(\.name), ["secureLab", "secureNative", "sharedLabSecure"], "secure routes")
     eq(routes.filter(\.transparent).map(\.name), ["photoViewer", "seeThroughLab", "seeThroughSlide", "sharedLabSeeThrough", "ivInvisibleLayer"], "transparent routes")
+    eq(routes.filter(\.accessibilityHidesBelow).map(\.name), ["photoViewer"], "routes that hide the screens below")
     // The other options of the transparent one still read.
     guard let viewer = routes.first(where: { $0.name == "photoViewer" }) else { return fail("no photoViewer") }
     eq(viewer.transition, .none, "photoViewer transition")
@@ -60,8 +61,9 @@ test("optionDefaults") {
     no(r.transparent, "transparent")
     yes(r.restore, "restore")
     eq(r.transition, .push, "transition")
-    let on = ZnRoute(json: ["name": "b", "secure": true, "transparent": true])
-    yes(on.secure && on.transparent, "both on")
+    no(r.accessibilityHidesBelow, "accessibilityHidesBelow")
+    let on = ZnRoute(json: ["name": "b", "secure": true, "transparent": true, "accessibilityHidesBelow": true])
+    yes(on.secure && on.transparent && on.accessibilityHidesBelow, "all on")
 }
 
 // MARK: See-through (ZnSeeThroughStrategy)

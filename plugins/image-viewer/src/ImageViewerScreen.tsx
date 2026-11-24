@@ -1,6 +1,6 @@
 // The photo viewer screen, in TSX (registry 24; ImageViewer module 3). ImageViewer.open pushes it; the app adds it to
 // its routes once:
-//   imageViewer: { path: "/image-viewer", screen: ImageViewerScreen, transparent: true, safeArea: "none", statusBar: "light", restore: false }
+//   imageViewer: { path: "/image-viewer", screen: ImageViewerScreen, transparent: true, accessibilityHidesBelow: true, safeArea: "none", statusBar: "light", restore: false }
 // The gestures are zero-native's own (useZoom per photo, usePan to drag it away), the pager is a <List pagingEnabled>,
 // and the overlay (close button, counter) is TSX, so apps can restyle it. Each photo is drawn by the native view
 // "imageviewer.page" (ViewerPage.kt): loading (web, asset, file, data:, headers), EXIF, the sharp part when zoomed.
