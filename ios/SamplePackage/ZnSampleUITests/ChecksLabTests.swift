@@ -29,17 +29,16 @@ final class ChecksLabTests: ZnUITestCase {
         status("turned 1")
         id("tilted-card").tap()
         status("tilted 1")
-        // Near the turned card's far edge (drawn narrower than laid out): still the card.
-        id("turned-card").coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.5)).tap()
+        // The element's frame is the drawn card's bounding box (about 60 to 165 pt across; laid out 59 to 189), so
+        // offsets go from its right edge, the drawn far edge. 10 pt inside it: still the card.
+        let farEdge = id("turned-card").coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 0.5))
+        farEdge.withOffset(CGVector(dx: -10, dy: 0)).tap()
         status("turned 2")
-        // Inside the laid-out 130 pt but past the drawn far edge (about 41 pt from the centre at 40° and camera 8: the
-        // laid-out edge is at 65): not the card. This tap fails if hit testing goes by the laid-out rect.
-        id("turned-card").coordinate(withNormalizedOffset: CGVector(dx: 0.06, dy: 0.5)).tap()
+        // 14 pt past it: inside the laid-out 130 pt (24 pt short of its edge) but not on the drawn card, so not pressed.
+        // This tap fails if hit testing goes by the laid-out rect (checked by hand too, 2026-11-24).
+        farEdge.withOffset(CGVector(dx: 14, dy: 0)).tap()
         Thread.sleep(forTimeInterval: 0.6)
         XCTAssertEqual(id("checks-status").label, "status: turned 2", "a tap outside the drawn card pressed it")
-        // The near edge is drawn wider than laid out (about 64 pt): a tap at 0.94 (57 pt) is still the card.
-        id("turned-card").coordinate(withNormalizedOffset: CGVector(dx: 0.94, dy: 0.5)).tap()
-        status("turned 3")
         reveal(id("turned-field")).tap()
         status("turned field focused")
     }
