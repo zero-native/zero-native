@@ -208,7 +208,8 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
     static let dismissPanName = "zn.dismissPan"
     /// The drag's transition while the finger moves an opaque modal (a UIKit pop it drives).
     private var modalDrag: ZnModalDrag?
-    /// The drag on a screen that wants Back: JS heard BACK when it began; nothing moves.
+    /// The drag on a screen that wants Back: JS heard BACK when it began; nothing moves (also a drag that began while
+    /// something else had started moving).
     private var dismissToJS = false
     /// The scroll views under the touch dismissPan got, in the modal screen itself, innermost first.
     private var touchScrolls: [UIScrollView] = []
@@ -708,28 +709,35 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
     }
 
     private func dismissShouldBegin() -> Bool {
-        guard let m = modalTop() else { return false }
+        guard modalTop() != nil else { return false }
         let v = dismissPan.velocity(in: view)
         guard v.y > 0, v.y > abs(v.x) else { return false }  // down, more than sideways
         // A scroll view under the finger that can still scroll that way scrolls; at its top it hands over (scrollPanned).
-        if touchScrolls.contains(where: Self.pullScrolls) { return false }
-        if app.backWanted.contains(m.entry) {
-            print("zn t=\(ZnDebug.ms()) nav: drag down on a screen that wants Back → BACK to JS")
-            app.systemBack()  // JS decides; the screen moves only if JS pops it
-            dismissToJS = true  // the drag still takes the touch, so nothing under it scrolls or presses as well
-            return true
-        }
-        print("zn t=\(ZnDebug.ms()) nav: drag down, \(m.box == nil ? "native pop" : "see-through")")
-        dragging = m.box
-        return true
+        // Nothing is changed here: UIKit may ask and then not begin it (a native pan under the finger it waits for
+        // took the touch), so JS is asked and the drag set up at .began.
+        return !touchScrolls.contains(where: Self.pullScrolls)
     }
 
     @objc private func dismissPanned(_ g: UIPanGestureRecognizer) {
+        if g.state == .began {
+            dragFrom = g.translation(in: view).y
+            guard let m = modalTop() else {
+                dismissToJS = true  // something else moves already: the drag holds the touch and moves nothing
+                return
+            }
+            if app.backWanted.contains(m.entry) {
+                print("zn t=\(ZnDebug.ms()) nav: drag down on a screen that wants Back → BACK to JS")
+                app.systemBack()  // JS decides; the screen moves only if JS pops it
+                dismissToJS = true  // the drag still takes the touch, so nothing under it scrolls or presses as well
+                return
+            }
+            print("zn t=\(ZnDebug.ms()) nav: drag down, \(m.box == nil ? "native pop" : "see-through")")
+            dragging = m.box
+        }
         if dismissToJS {
             if [.ended, .cancelled, .failed].contains(g.state) { dismissToJS = false }
             return
         }
-        if g.state == .began { dragFrom = g.translation(in: view).y }
         let progress = min(max((g.translation(in: view).y - dragFrom) / max(view.bounds.height, 1), 0), 1)
         switch g.state {
         case .began: startDrag()
