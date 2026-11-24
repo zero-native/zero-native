@@ -119,7 +119,9 @@ final class InputTests: ZnUITestCase {
     /// Seven keys in one burst (typeText): every one counts. A93 (2026-11-24): ZnTextField set `f.text = value` for
     /// JS's reformat, and a key that reached the field within ~20 ms after that set never arrived (no editingChanged,
     /// not in the text): UIKit drops keys queued while the text is replaced from outside the input system. JS's value
-    /// now goes in with `replace(_:withText:)` (UITextInput) while the field is focused, and every key counts.
+    /// now goes in with `replace(_:withText:)` (UITextInput) while the field is focused, and every key counts. This
+    /// test passes before that fix too (5 of 5, 2026-11-24: typeText's keys don't bring the bug out); a burst typed by
+    /// the simulator tool does (6 of 7 keys before, 7 of 7 after). It still checks a burst ends in JS's value.
     func testBurst() {
         let amount = openAmount()
         amount.typeText("1234567")

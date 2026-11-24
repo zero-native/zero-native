@@ -121,7 +121,8 @@ final class ChecksLabTests: ZnUITestCase {
     /// The f) fields: seven keys in one burst into a multiline field JS regroups all count (A93: a key typed during
     /// JS's regroup was put before the last digit, 12,35,674); JS's 6 digits go whole into a focused maxLength 4 field,
     /// one-line and multiline (they go in through UITextInput's replace then, which must not ask the field's
-    /// maxLength), and into one that isn't focused (`text =`); a read-only field takes JS's text.
+    /// maxLength), and into one that isn't focused (`text =`); a read-only field takes JS's text. (The burst passes
+    /// before A93's fix too, as InputTests.testBurst says.)
     func testValuesJSPutsInFields() {
         let multi = reveal(id("multi-group"), hittable: false)
         multi.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
