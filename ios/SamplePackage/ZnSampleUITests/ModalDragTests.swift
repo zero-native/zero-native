@@ -116,4 +116,149 @@ final class ModalDragTests: ZnUITestCase {
         eventually("the card left") { !card.exists }
         closed("See-through card", stack: under, focused: 3)
     }
+
+    /// A drag from window point [a] to [b] (points), at [velocity], held [hold] s at the end.
+    private func drag(_ a: CGPoint, _ b: CGPoint, velocity: CGFloat, hold: TimeInterval) {
+        let o = app.coordinate(withNormalizedOffset: .zero)
+        o.withOffset(CGVector(dx: a.x, dy: a.y)).press(forDuration: 0.05, thenDragTo: o.withOffset(CGVector(dx: b.x, dy: b.y)),
+                                                       withVelocity: XCUIGestureVelocity(velocity), thenHoldForDuration: hold)
+    }
+
+    /// A sideways swipe on a Carousel, straight or a bit diagonal (down as well), pages it and never moves the modal
+    /// (2026-11-24 review: the rail handed the pull over at its first move down, and a quick diagonal one closed it).
+    func testSidewaysRailNeverMovesTheModal() {
+        let stack = open("With a rail")
+        let title = text("Drag me down")
+        let rail = id("md-rail")
+        XCTAssertTrue(appears(rail, timeout: 3))
+        let y0 = title.frame.minY
+        let r = rail.frame
+        drag(CGPoint(x: r.maxX - 30, y: r.midY - 20), CGPoint(x: r.minX + 40, y: r.midY + 30), velocity: 1500, hold: 0)
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        XCTAssertTrue(title.exists, "a sideways swipe closed the modal")
+        XCTAssertEqual(title.frame.minY, y0, accuracy: 1, "a diagonal swipe on the rail moved the modal")
+        eventually("the rail paged (Card 2 at \(text("Card 2").frame.minX))") { self.text("Card 2").frame.minX < self.app.frame.width / 2 }
+        drag(CGPoint(x: r.maxX - 30, y: r.midY), CGPoint(x: r.minX + 40, y: r.midY + 4), velocity: 800, hold: 0.3)
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        XCTAssertEqual(title.frame.minY, y0, accuracy: 1, "a slow swipe on the rail moved the modal")
+        // A drag down on the rail still closes the modal (the rail waits for it to fail).
+        drag(CGPoint(x: r.midX, y: r.minY + 10), CGPoint(x: r.midX, y: r.minY + 10 + app.frame.height * 0.3), velocity: 2000, hold: 0)
+        closed(stack: stack, focused: 2)
+    }
+
+    /// A pull down on a Scroll with pull to refresh refreshes it; the modal stays (as UIKit's sheet).
+    func testPullToRefreshKeepsTheModal() {
+        let stack = open("Pull to refresh")
+        let title = text("Drag me down")
+        let item = text("Item 1")
+        XCTAssertTrue(appears(item, timeout: 3))
+        XCTAssertTrue(appears(text("refreshed 0"), timeout: 2))
+        let y0 = title.frame.minY
+        let f = item.frame
+        drag(CGPoint(x: f.midX, y: f.minY), CGPoint(x: f.midX, y: f.minY + 220), velocity: 600, hold: 0.4)
+        XCTAssertTrue(appears(text("refreshed 1"), timeout: 5), "no refresh (\(id("md-refreshed").label))")
+        RunLoop.current.run(until: Date().addingTimeInterval(0.8))
+        XCTAssertTrue(title.exists, "the pull closed the modal")
+        XCTAssertEqual(title.frame.minY, y0, accuracy: 1, "the pull moved the modal")
+        app.buttons["Close"].firstMatch.tap()
+        closed(stack: stack, focused: 2)
+    }
+
+    /// An inverted list (a chat) opens at its bottom: a pull down scrolls back through it first; the modal stays.
+    func testInvertedListScrollsFirst() {
+        let stack = open("Inverted list")
+        let title = text("Drag me down")
+        let newest = text("Message 1")
+        XCTAssertTrue(appears(newest, timeout: 3))
+        let y0 = title.frame.minY, m0 = newest.frame.minY
+        let chat = id("md-chat").frame
+        drag(CGPoint(x: chat.midX, y: chat.minY + 40), CGPoint(x: chat.midX, y: chat.minY + 240), velocity: 500, hold: 0.4)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.8))
+        XCTAssertTrue(title.exists, "the pull closed the modal")
+        XCTAssertEqual(title.frame.minY, y0, accuracy: 1, "the pull moved the modal")
+        XCTAssertTrue(!newest.exists || newest.frame.minY > m0 + 100, "the chat didn't scroll back (Message 1 at \(newest.frame.minY), was \(m0))")
+        app.buttons["Close"].firstMatch.tap()
+        closed(stack: stack, focused: 2)
+    }
+
+    /// A zn pan (usePan, up and down) takes a drag that starts on it: the modal doesn't follow, even a quick one.
+    func testZnPanKeepsItsDrag() {
+        let stack = open("With a pan")
+        let title = text("Drag me down")
+        let chip = text("Pan me")
+        XCTAssertTrue(appears(chip, timeout: 3))
+        let y0 = title.frame.minY
+        let f = chip.frame
+        drag(CGPoint(x: f.midX, y: f.midY), CGPoint(x: f.midX, y: f.midY + 200), velocity: 1500, hold: 0)
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        XCTAssertTrue(title.exists, "the drag on the pan closed the modal")
+        XCTAssertEqual(title.frame.minY, y0, accuracy: 1, "the drag on the pan moved the modal")
+        app.buttons["Close"].firstMatch.tap()
+        closed(stack: stack, focused: 2)
+    }
+
+    /// JS's nav.back() while a drag is held: let go short (it springs back), JS's pop then runs and the lab shows;
+    /// let go far, the drag's own pop closes it. Either way JS's stack is the lab's again (2026-11-24 review: a JS pop
+    /// queued during the drag was given the spent drag and dropped).
+    func testJSBackDuringAHeldDrag() {
+        var stack = open("Open modal")
+        app.buttons["Back in 2 s"].firstMatch.tap()
+        drag(from: 0.4, to: 0.5, velocity: 300, hold: 3)
+        closed(stack: stack, focused: 2)
+        stack = open("Open modal", launching: false)
+        app.buttons["Back in 2 s"].firstMatch.tap()
+        drag(from: 0.3, to: 0.8, velocity: 500, hold: 3)
+        closed(stack: stack, focused: 3)
+        // The lab and its modal still work after both.
+        stack = open("Open modal", launching: false)
+        drag(from: 0.4, to: 0.6, velocity: 2500, hold: 0)
+        closed(stack: stack, focused: 4)
+    }
+
+    /// JS pushes while a drag is held, and the drag then closes the page: native and JS end on the new page over the
+    /// lab, and its Close shows the lab (as NavRaceTests.testPushDuringSwipe for the edge swipe).
+    func testJSPushDuringAHeldDrag() {
+        let stack = open("Open modal")
+        app.buttons["Push in 2 s"].firstMatch.tap()
+        drag(from: 0.3, to: 0.8, velocity: 500, hold: 3)
+        let second = text("Second page")
+        XCTAssertTrue(appears(second, timeout: 5), "the push during the drag isn't shown")
+        RunLoop.current.run(until: Date().addingTimeInterval(1.5))
+        XCTAssertTrue(second.exists, "the second page went")
+        XCTAssertFalse(text("Drag me down").exists, "the dragged page still shows")
+        XCTAssertFalse(id("md-focused").exists, "the lab shows")
+        app.buttons["Close"].firstMatch.tap()
+        closed("Second page", stack: stack, focused: 2)
+    }
+
+    /// A drag down on a screen that pushed in from the side does nothing (its Back is the edge swipe).
+    func testPushRouteIgnoresTheDragDown() {
+        launch("modalDragLab", until: { self.text("Modal drag lab") })
+        app.buttons["Open modal"].firstMatch.tap()
+        XCTAssertTrue(appears(text("Drag me down"), timeout: 5))
+        app.buttons["Close"].firstMatch.tap()
+        XCTAssertTrue(appears(id("md-focused"), timeout: 5))
+        waitLabel(id("md-focused"), "focused 2")
+        let stack = id("md-stack").label
+        let y0 = text("Modal drag lab").frame.minY
+        drag(from: 0.3, to: 0.8, velocity: 2500, hold: 0)
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        XCTAssertTrue(text("Modal drag lab").exists, "the lab left")
+        XCTAssertEqual(text("Modal drag lab").frame.minY, y0, accuracy: 1, "the lab moved")
+        XCTAssertEqual(id("md-stack").label, stack)
+        XCTAssertEqual(id("md-focused").label, "focused 2")
+    }
+
+    /// A drag down on a see-through card's backdrop (it lets the touch through to the lab below) takes the card away
+    /// too; the lab under it doesn't move.
+    func testSeeThroughBackdropDrag() {
+        let stack = open("See-through", title: "See-through card")
+        let card = text("See-through card")
+        let lab = text("Modal drag lab")
+        let l0 = lab.frame.minY
+        drag(from: 0.15, to: 0.4, velocity: 2000, hold: 0)
+        eventually("the card left") { !card.exists }
+        XCTAssertEqual(lab.frame.minY, l0, accuracy: 1, "the lab under the card moved")
+        closed("See-through card", stack: stack, focused: 2)
+    }
 }
