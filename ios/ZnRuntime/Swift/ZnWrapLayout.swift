@@ -27,6 +27,8 @@ struct ZnWrapLayout: Layout {
     var definiteHeight: Bool
     /// minHeight less padding and border (ZnFlexLayout.minWidth): the lines are arranged in the raised height.
     var minHeight: CGFloat = 0
+    /// Some child takes no room (ZnNoRoomKey; ZnFlexLayout.roomless).
+    var roomless = false
 
     struct Measured {
         var size: CGSize
@@ -56,7 +58,7 @@ struct ZnWrapLayout: Layout {
         }
     }
 
-    func measure(_ proposal: ProposedViewSize, _ subviews: [LayoutSubview]) -> Measured {
+    func measure<C: RandomAccessCollection>(_ proposal: ProposedViewSize, _ subviews: C) -> Measured where C.Element == LayoutSubview, C.Index == Int {
         let n = subviews.count
         let maxW = Self.finite(proposal.width)
         var sizes = Array(repeating: CGSize.zero, count: n)
@@ -138,13 +140,20 @@ struct ZnWrapLayout: Layout {
     }
 
     func sizeThatFits(proposal: ProposedViewSize, subviews all: Subviews, cache: inout ()) -> CGSize {
-        measure(proposal, all.znRoomy).size
+        roomless ? measure(proposal, all.znRoomy).size : measure(proposal, all).size
     }
 
     // A Sheet, Modal or bar takes no room in a line (ZnNoRoomKey).
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews all: Subviews, cache: inout ()) {
-        all.znPlaceRoomless(in: bounds)
-        let subviews = all.znRoomy
+        if roomless {
+            all.znPlaceRoomless(in: bounds)
+            place(in: bounds, all.znRoomy)
+        } else {
+            place(in: bounds, all)
+        }
+    }
+
+    private func place<C: RandomAccessCollection>(in bounds: CGRect, _ subviews: C) where C.Element == LayoutSubview, C.Index == Int {
         let m = measure(ProposedViewSize(bounds.size), subviews)
         for (i, sv) in subviews.enumerated() {
             let f = m.frames[i]

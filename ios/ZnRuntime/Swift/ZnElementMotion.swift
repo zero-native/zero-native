@@ -320,7 +320,7 @@ private struct ZnPressDrawn: ViewModifier {
             .environment(\.znPressAncestors, ancestors + [me])
             .overlay { ZnPressFeedbackNow(s: s, inst: inst, state: state).accessibilityHidden(true) }
             .scaleEffect(state.pressed ? s.pressScale : 1)
-            .modifier(ZnOpacityGroup(on: s.pressOpacity < 1))  // pressOpacity fades it as one picture (ZnRenderer.swift)
+            .modifier(ZnOpacityGroup(on: s.pressOpacity < 1 && s.drawsOverlappingParts))  // pressOpacity: one picture (ZnRenderer.swift)
             .opacity(state.pressed ? s.pressOpacity : 1)
             .animation(.spring(response: 0.2, dampingFraction: 0.8), value: state.pressed)
             // hitSlop, grown to Apple's 44 pt minimum touch area (ZnTouchRules.reach; Android has Compose's 48 dp): the

@@ -295,7 +295,7 @@ struct ZnNodeView: View {
         let raised = vertical && !(definiteWidth || s.hasWidth) && minW > 0
         return ZnFlexLayout(vertical: vertical, justify: s.justify, alignItems: s.alignItems, gap: s.gapNow(inst),
                             definiteWidth: definiteWidth || s.hasWidth, definiteHeight: definiteHeight,
-                            minWidth: minW, minHeight: minH) {
+                            minWidth: minW, minHeight: minH, roomless: znRoomless(refs)) {
             ForEach(refs) { ref in
                 let child = ref.t.nodes[ref.node]
                 let flex = flexes[ref.id] ?? child.flex
@@ -319,6 +319,9 @@ struct ZnNodeView: View {
         return (max(0, (s.minWidthNow(inst) ?? 0) - i.leading - i.trailing), max(0, (s.minHeightNow(inst) ?? 0) - i.top - i.bottom))
     }
 
+    /// Some shown child takes no room (a Sheet, Modal or bar): the layout then leaves it out (ZnNoRoomKey).
+    private func znRoomless(_ refs: [ZnChildRef]) -> Bool { refs.contains { $0.t.nodes[$0.node].takesNoRoom } }
+
     private func pinnedHeight(_ s: ZnNodeSpec) -> Bool { s.absolute && s.hasPosTop && s.hasPosBottom }
 
     /// A Row with flexWrap "wrap" (registry 24): ZnWrapLayout, ZnRenderer.kt ZnWrapRow. A child stretches to its line's
@@ -330,7 +333,8 @@ struct ZnNodeView: View {
         let flexes = znSlotFlexes(refs)
         return ZnWrapLayout(justify: s.justify, alignItems: s.alignItems, alignContent: s.alignContent, gap: gap,
                             crossGap: s.crossGapNow(inst) ?? gap, definiteWidth: definiteWidth || s.hasWidth,
-                            definiteHeight: s.hasHeight || outer.fillHeight, minHeight: innerMin(s).1) {
+                            definiteHeight: s.hasHeight || outer.fillHeight, minHeight: innerMin(s).1,
+                            roomless: znRoomless(refs)) {
             ForEach(refs) { ref in
                 let child = ref.t.nodes[ref.node]
                 let flex = flexes[ref.id] ?? child.flex
@@ -788,7 +792,10 @@ struct ZnLayerFull: ViewModifier {
 /// opacity below 1 fades the node as one picture (its shadow, background, border and children together), as Android's
 /// graphicsLayer alpha, drawn offscreen when alpha < 1. Without it SwiftUI fades each drawn part on its own, so
 /// overlapping children, and a picture under text, show through each other (2026-11-24). Only on a node whose opacity
-/// can be below 1 (fadesAsGroup); fixed per node, so the branch never swaps.
+/// can be below 1 and that draws parts which could overlap (fadesAsGroup); fixed per node, so the branch never swaps.
+/// It costs: 30 boxes whose opacity follows a motion value took 8.6 ms of main thread per frame with the group and
+/// 4.2 to 5.4 without (the simulator, ZN_MOTION_PERF, 2026-11-24), so a plain filled box, which looks the same either
+/// way, has none.
 struct ZnOpacityGroup: ViewModifier {
     let on: Bool
     func body(content: Content) -> some View {
@@ -804,8 +811,23 @@ extension ZnNodeSpec {
             type == Registry.Component.statusBar || type == Registry.Component.navigationBar
     }
 
-    /// Its opacity can be below 1: written below 1, from a slot (a motion value too), or animated.
-    var fadesAsGroup: Bool { opacity < 1 || opacitySlot >= 0 || animate?.timing(Registry.Prop.opacity) != nil }
+    /// Its opacity can be below 1 (written below 1, from a slot or motion value, or animated) and it draws parts that a
+    /// fade would show through each other (drawsOverlappingParts).
+    var fadesAsGroup: Bool {
+        (opacity < 1 || opacitySlot >= 0 || animate?.timing(Registry.Prop.opacity) != nil) && drawsOverlappingParts
+    }
+
+    /// Children, or two of its own parts: a fill, a gradient, a border, a shadow, its own content (a Text's glyphs, a
+    /// picture, a control, a Pressable's ripple). A box with only a fill fades the same with or without a group.
+    var drawsOverlappingParts: Bool {
+        if !children.isEmpty { return true }
+        let C = Registry.Component.self
+        let plain = [C.column, C.row, C.stack, C.box, C.spacer, C.fragment, C.anchor].contains(type)
+        let parts = [background != nil || backgroundSlot >= 0, gradient != nil,
+                     borderWidth > 0 || borderTopWidth > 0 || borderBottomWidth > 0 || borderWidthSlot >= 0,
+                     elevation > 0, !plain]
+        return parts.filter { $0 }.count > 1
+    }
 }
 
 /// overflow: hidden. Only when asked: the old way, `clipShape(Rectangle().inset(by: -1e6))` for "no clip", made SwiftUI
@@ -893,9 +915,9 @@ struct ZnBackground: View {
             ?? (s.backgroundSlot >= 0 ? znColor(inst.slot(s.backgroundSlot).value) : s.background)
         let follow = s.animate?.timing(Registry.Prop.backgroundColor).flatMap { $0.selfPlaying ? nil : $0.animation }
         // elevation: Android's material shadow, cast by the node's shape whether or not anything is painted (Compose's
-        // shadow(elevation, shape) from the outline): an image card with no backgroundColor is lifted too, and a
-        // translucent background casts the full shadow (before 2026-11-24 the shadow followed the fill: none without
-        // one, faint under a translucent one).
+        // shadow(elevation, shape) from the outline): an image card with no backgroundColor is lifted too (before
+        // 2026-11-24 the shadow followed the fill: none without one, faint under a translucent one). It shows only
+        // outside the shape, so a translucent or empty box stays see-through (ZnElevationShadow).
         if s.elevation > 0 { ZnElevationShadow(s: s, shape: shape) }
         if color != nil || s.gradient != nil {
             ZStack {
@@ -916,6 +938,9 @@ struct ZnBackground: View {
 
 /// The elevation shadow alone: a soft shadow below the shape (y = elevation / 2, blur = elevation, 20 % of
 /// shadowColor), the shape itself not drawn. Its canvas reaches past the box by the blur, so the shadow isn't cut.
+/// The shape is cut out of it: Android's caster is opaque (Compose's outline alpha is the layer's, 1), and Skia leaves
+/// out the shadow under an opaque caster, so a translucent card or an elevated box with no fill shows what is behind
+/// it, not a grey slab (2026-11-24). An opaque card looks the same either way.
 struct ZnElevationShadow: View {
     let s: ZnNodeSpec
     let shape: UnevenRoundedRectangle
@@ -926,8 +951,10 @@ struct ZnElevationShadow: View {
         let color = s.shadowColor.opacity(0.2)
         Canvas { ctx, size in
             let box = CGRect(x: pad, y: pad, width: max(0, size.width - 2 * pad), height: max(0, size.height - 2 * pad))
+            let path = shape.path(in: box)
+            ctx.clip(to: path, options: .inverse)
             ctx.addFilter(.shadow(color: color, radius: e, x: 0, y: e / 2, options: .shadowOnly))
-            ctx.fill(shape.path(in: box), with: .color(.black))
+            ctx.fill(path, with: .color(.black))
         }
         .padding(-pad)
         .allowsHitTesting(false)

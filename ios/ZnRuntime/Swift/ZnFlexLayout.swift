@@ -54,6 +54,9 @@ struct ZnFlexLayout: Layout {
     /// (Yoga, Compose's heightIn), so alignItems center centres them in it (ZeroBill's ListTile rows, minHeight 56).
     var minWidth: CGFloat = 0
     var minHeight: CGFloat = 0
+    /// Some child takes no room (ZnNoRoomKey, known to the renderer): only then are the children filtered, so the
+    /// layouts with none (almost all) pay nothing for it.
+    var roomless = false
 
     struct Measured {
         var size: CGSize
@@ -78,7 +81,8 @@ struct ZnFlexLayout: Layout {
         return max(min(own, crossAvail ?? own), minWidth)
     }
 
-    private func measure(_ proposal: ProposedViewSize, _ subviews: [LayoutSubview]) -> Measured {
+    private func measure<C: RandomAccessCollection>(_ proposal: ProposedViewSize, _ subviews: C) -> Measured
+        where C.Element == LayoutSubview, C.Index == Int {
         let mainAvail = Self.bounded(vertical ? proposal.height : proposal.width)
         let crossAvail = Self.bounded(vertical ? proposal.width : proposal.height)
         let gaps = gap * CGFloat(max(subviews.count - 1, 0))
@@ -118,12 +122,19 @@ struct ZnFlexLayout: Layout {
     }
 
     func sizeThatFits(proposal: ProposedViewSize, subviews all: Subviews, cache: inout ()) -> CGSize {
-        measure(proposal, all.znRoomy).size
+        roomless ? measure(proposal, all.znRoomy).size : measure(proposal, all).size
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews all: Subviews, cache: inout ()) {
-        all.znPlaceRoomless(in: bounds)
-        let subviews = all.znRoomy
+        if roomless {
+            all.znPlaceRoomless(in: bounds)
+            place(in: bounds, all.znRoomy)
+        } else {
+            place(in: bounds, all)
+        }
+    }
+
+    private func place<C: RandomAccessCollection>(in bounds: CGRect, _ subviews: C) where C.Element == LayoutSubview, C.Index == Int {
         let m = measure(ProposedViewSize(bounds.size), subviews)
         let mainSize = main(bounds.size), crossSize = cross(bounds.size)
         let content = m.children.reduce(0) { $0 + main($1) } + gap * CGFloat(max(subviews.count - 1, 0))
