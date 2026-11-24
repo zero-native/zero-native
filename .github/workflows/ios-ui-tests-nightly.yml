@@ -1,9 +1,10 @@
 # The iOS sample's UI tests (XCUITest, ios/SamplePackage/ZnSampleUITests), every night and by hand: `bun run
 # ios:ui-test` builds the package sample and its test bundle (Debug, not signed), boots the first iPhone simulator on
 # the newest iOS, runs every test and prints one line per test (tools/ios-ui-test.ts). Nightly rather than on every
-# pull request (about 6 minutes on a warm Mac, more on a runner) until it has been green for a while (Pavan,
-# 2026-11-24). When it fails, the test log and the .xcresult (screenshots, the accessibility tree at each failure)
-# are kept for a week. Nothing here needs a secret, as in ci.yml.
+# pull request until it has been green for a while (Claude's call, 2026-11-24; Pavan left it open). A test that fails
+# runs again once on its own, and the job fails only if it fails again (a busy runner makes some timing tests flaky).
+# When it fails or times out, the test logs and the .xcresult bundles (screenshots, the accessibility tree at each
+# failure) are kept for a week. Nothing here needs a secret, as in ci.yml.
 name: iOS UI tests (nightly)
 
 on:
@@ -53,14 +54,41 @@ jobs:
       - name: Simulators on this runner (for the log)
         run: xcrun simctl list devices available | grep -E "^-- iOS|iPhone" || true
       - name: UI tests
-        run: bun run ios:ui-test --packages "$RUNNER_TEMP/spm" --derived-data ios/build/ui-test
-      - name: Keep the test log and results
-        if: failure()
+        # Its own limit, inside the job's: a hung build or simulator fails this step, and the logs are still kept.
+        timeout-minutes: 55
+        run: |
+          set -o pipefail
+          out=ios/build/ui-test
+          first="$RUNNER_TEMP/ui-test-first.txt"
+          if bun run ios:ui-test --packages "$RUNNER_TEMP/spm" --derived-data "$out" | tee "$first"; then exit 0; fi
+          # The tool prints "failed  Class/test  3.1 s" for each failed test.
+          failed=$(grep -E '^failed ' "$first" | awk '{print $2}' | sort -u || true)
+          if [ -z "$failed" ]; then echo "The run failed before any test failed (build, boot or crash): no second run"; exit 1; fi
+          # The second run replaces ui-test.log and the .xcresult: keep the first run's next to them.
+          mkdir -p "$out/first-run"
+          cp "$out/ui-test.log" "$out/first-run/" 2>/dev/null || true
+          cp -R "$out/ZnSampleUITests.xcresult" "$out/first-run/" 2>/dev/null || true
+          args=()
+          for t in $failed; do args+=(--only "$t"); done
+          echo "Running the failed tests again once: $(echo $failed)"
+          bun run ios:ui-test --test-only --packages "$RUNNER_TEMP/spm" --derived-data "$out" "${args[@]}"
+          echo "::warning::Passed on the second run (flaky): $(echo $failed)"
+      - name: Keep the test logs and results
+        if: failure() || cancelled()
         uses: actions/upload-artifact@v4
         with:
           name: ios-ui-test-results
           path: |
             ios/build/ui-test/ui-test.log
             ios/build/ui-test/ZnSampleUITests.xcresult
+            ios/build/ui-test/first-run
           if-no-files-found: ignore
+          retention-days: 7
+      # A test that failed once and passed again: its first run is kept too, to look at the flake.
+      - name: Keep the first run of a flaky test
+        if: success() && hashFiles('ios/build/ui-test/first-run/ui-test.log') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ui-test-flaky-first-run
+          path: ios/build/ui-test/first-run
           retention-days: 7
