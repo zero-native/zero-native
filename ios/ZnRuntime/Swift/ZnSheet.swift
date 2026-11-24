@@ -137,6 +137,7 @@ struct ZnSheetPresenter: UIViewControllerRepresentable {
         // The screen's environment, for the sheet's own SwiftUI tree (a new value redraws what reads it).
         var env = ZnHostedEnv(context.environment)
         env.gestureDepth = 0  // the sheet's gestures have their own hub
+        env.pressAncestors = []  // and its Pressables aren't inside the one around the Sheet (a new layer, as Android's dialog)
         if c.env.env != env { c.env.env = env }
         if visible, c.sheet == nil {
             let layer = ZnSheetLayer(detents: s.detents, dismissible: s.dismissible,

@@ -22,8 +22,10 @@ final class ZnPressState {
     var pressed = false
     /// Where the finger went down, in the Pressable's own space (the ripple starts there).
     var touch: CGPoint?
+    /// Counts the presses: a new one restarts the ripple at its finger even while `pressed` is still held on by the
+    /// last one's [minShown] (two quick taps showed one ripple, at the first finger).
+    private(set) var presses = 0
     @ObservationIgnored private var downAt: CFTimeInterval = 0
-    @ObservationIgnored private var presses = 0
 
     /// How long a press shows at least. Inside a Scroll, List or Carousel UIKit holds a quick tap's touch until the
     /// lift (the scroll's content delay), then hands over its start and end at once: `pressed` went true and back to
@@ -86,19 +88,21 @@ struct ZnPressFeedback: View {
             }
             .modifier(ZnRippleClip(clip: !s.rippleBorderless, shape: shape))
             .allowsHitTesting(false)
+            // Each press starts a ripple (also one that comes while the last is still shown); the end of the press
+            // look fades it.
+            .onChange(of: state.presses) {
+                origin = state.touch ?? .zero
+                downAt = Date()
+                var t = Transaction()
+                t.disablesAnimations = true
+                withTransaction(t) { grown = false; shown = true }
+                withAnimation(.easeOut(duration: 0.225)) { grown = true }
+            }
             .onChange(of: state.pressed) { _, pressed in
-                if pressed {
-                    origin = state.touch ?? .zero
-                    downAt = Date()
-                    var t = Transaction()
-                    t.disablesAnimations = true
-                    withTransaction(t) { grown = false; shown = true }
-                    withAnimation(.easeOut(duration: 0.225)) { grown = true }
-                } else {
-                    // A quick tap still shows the ripple grow a little before it fades.
-                    let wait = max(0, 0.1 - Date().timeIntervalSince(downAt))
-                    withAnimation(.easeOut(duration: 0.15).delay(wait)) { shown = false }
-                }
+                guard !pressed else { return }
+                // A quick tap still shows the ripple grow a little before it fades.
+                let wait = max(0, 0.1 - Date().timeIntervalSince(downAt))
+                withAnimation(.easeOut(duration: 0.15).delay(wait)) { shown = false }
             }
         }
     }
@@ -274,6 +278,9 @@ final class ZnTouchControl: UIView {
     private var active = false   // between onPressIn and its onPressOut
     /// Where the last press began, in the Pressable's space (the ripple starts there).
     private(set) var lastDown: CGPoint = .zero
+    /// How long ago the finger went down when the next touchesBegan comes (ZnPressForward presses after its delay):
+    /// onLongPress and onPressRepeat are timed from the finger, as on Android, not from the late press.
+    var late: TimeInterval = 0
     /// hitSlop: how far this view reaches past the Pressable on each side (0 without one).
     var slop: UIEdgeInsets = .zero
     /// The Pressable itself, without its slop.
@@ -371,6 +378,8 @@ final class ZnTouchControl: UIView {
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        let late = self.late
+        self.late = 0
         guard isEnabled, !active else { return }
         let at = touches.first?.location(in: self) ?? CGPoint(x: bounds.midX, y: bounds.midY)
         lastDown = CGPoint(x: at.x - slop.left, y: at.y - slop.top)
@@ -379,7 +388,7 @@ final class ZnTouchControl: UIView {
         if haptic { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
         onEvent?(.down, .none)
         if let delay = repeatDelay {
-            timer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
+            timer = Timer.scheduledTimer(withTimeInterval: max(0.01, delay - late), repeats: false) { [weak self] _ in
                 guard let self else { return }
                 self.handled = true
                 self.onEvent?(.repeat, .none)
@@ -388,7 +397,7 @@ final class ZnTouchControl: UIView {
                 }
             }
         } else if longPressOn() {
-            timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
+            timer = Timer.scheduledTimer(withTimeInterval: max(0.01, 0.5 - late), repeats: false) { [weak self] _ in
                 guard let self else { return }
                 self.handled = true
                 if self.haptic { UIImpactFeedbackGenerator(style: .medium).impactOccurred() }

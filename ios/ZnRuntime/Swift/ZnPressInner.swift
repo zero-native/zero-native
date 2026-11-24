@@ -30,7 +30,8 @@ enum ZnPressInner {
 
     private static var entries: [ObjectIdentifier: Entry] = [:]
 
-    /// [v] is drawn inside the Pressables [ancestors] (none: it is no longer inside one, and is forgotten).
+    /// [v] is drawn inside the Pressables [ancestors] (none: it is no longer inside one, it is gone, or it takes no
+    /// touches under pointerEvents "none" / "box-only": it is forgotten, and the Pressable keeps the touch).
     static func note(_ v: UIView, ancestors: [ObjectIdentifier], native: Bool) {
         let key = ObjectIdentifier(v)
         if ancestors.isEmpty {
@@ -49,6 +50,8 @@ enum ZnPressInner {
     /// touches there, or the outermost scroll view that can scroll there. nil: the Pressable keeps it.
     static func taker(at p: CGPoint, in window: UIWindow, inside own: ObjectIdentifier, event: UIEvent?) -> (UIView, native: Bool)? {
         var scroll: UIScrollView?
+        // Views gone without a word (a plugin view has no dismantle) are dropped here.
+        if entries.values.contains(where: { $0.view == nil }) { entries = entries.filter { $0.value.view != nil } }
         for e in entries.values where e.ancestors.contains(own) {
             guard let v = e.view, v.window === window, znReaches(v, p, in: window) else { continue }
             if e.native {
@@ -83,7 +86,9 @@ enum ZnPressInner {
 }
 
 /// Inside the content of a SwiftUI ScrollView (a <Scroll>, a <Carousel>) that is inside a Pressable: notes the scroll
-/// view with the Pressables around it (ZnPressInner). Drawn only inside a Pressable.
+/// view with the Pressables around it (ZnPressInner), none under znTouchOff (SwiftUI takes the scroll out of the hit
+/// test there, its UIScrollView still says it takes touches: the card would leave the tap to a scroll that never gets
+/// it). Drawn only inside a Pressable.
 struct ZnInnerScrollMark: UIViewRepresentable {
     let ancestors: [ObjectIdentifier]
 
@@ -126,7 +131,9 @@ final class ZnInnerScrollMarkView: UIView {
 
 /// Would a touch at [p] (window space) reach [v]? It must take the point itself (shown, taking touches, the point
 /// inside it), and so must each view above it: a scroll view or a list clips it, and a hidden or reused cell, a Sheet
-/// or the screen keeps it out, as UIKit's own hit test.
+/// or the screen keeps it out, as UIKit's own hit test. Stricter than the gesture hub's znShows (ZnGestureHub.swift),
+/// on purpose: a touch view and a scroll view only get touches through UIKit's hit test, which needs all of this;
+/// the hub's targets get theirs from the hub's own recognizer, so only clipping views keep them out.
 @MainActor func znReaches(_ v: UIView, _ p: CGPoint, in window: UIWindow) -> Bool {
     var u: UIView? = v
     while let s = u, s !== window {
@@ -147,6 +154,8 @@ final class ZnPressForward: UIGestureRecognizer {
     private weak var armed: ZnTouchControl?
     private weak var owner: ZnTouchControl?
     private var touch: UITouch?
+    /// When the finger went down (the owner's long press and repeat are timed from it).
+    private var downAt: CFTimeInterval = 0
     /// The press went to the owner (after the delay or at the lift).
     private var began = false
     private var timer: Timer?
@@ -187,6 +196,7 @@ final class ZnPressForward: UIGestureRecognizer {
         owner = c
         touch = t
         began = false
+        downAt = CACurrentMediaTime()
         // Any scroll around the finger (this one, a page around it, a rail inside it) that starts cancels the press.
         var v = t.view
         while let s = v {
@@ -206,6 +216,7 @@ final class ZnPressForward: UIGestureRecognizer {
         timer = nil
         guard !began, let t = touch, let c = owner else { return }
         began = true
+        c.late = CACurrentMediaTime() - downAt
         c.touchesBegan([t], with: nil)
     }
 

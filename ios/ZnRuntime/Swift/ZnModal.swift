@@ -74,6 +74,7 @@ struct ZnModalPresenter: UIViewControllerRepresentable {
         // The screen's environment, for the layer's own SwiftUI tree (a new value redraws what reads it).
         var env = ZnHostedEnv(context.environment)
         env.gestureDepth = 0  // the layer's gestures have their own hub
+        env.pressAncestors = []  // and its Pressables aren't inside the one around the Modal (a new layer, as Android's dialog)
         if c.env.env != env { c.env.env = env }
         if visible, c.layer == nil {
             let layer = ZnModalLayer(rootView: ZnModalContent(ctx: ctx, t: t, inst: inst, s: s, env: c.env))

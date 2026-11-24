@@ -30,6 +30,7 @@ struct ZnScrollView<Content: View>: View {
     @StateObject private var driver = ZnScrollDriver()
     /// The Pressables around it: inside one, its scroll view takes the drag from them (ZnPressInner.swift).
     @Environment(\.znPressAncestors) private var pressAncestors
+    @Environment(\.znTouchOff) private var touchOff
 
     init(ctx: ZnContext, s: ZnNodeSpec, inst: ZnInstance, outer: ZnOuter, padding: EdgeInsets,
          @ViewBuilder content: () -> Content) {
@@ -52,7 +53,7 @@ struct ZnScrollView<Content: View>: View {
                     .background {
                         if s.usesScrollProbe { ZnScrollProbe(ctx: ctx, s: s, inst: inst, driver: driver) }
                     }
-                    .background { if !pressAncestors.isEmpty { ZnInnerScrollMark(ancestors: pressAncestors) } }
+                    .background { if !pressAncestors.isEmpty { ZnInnerScrollMark(ancestors: touchOff ? [] : pressAncestors) } }
                     // keyboardDismissMode is this scroll's own: scrolls inside it keep SwiftUI's default.
                     .scrollDismissesKeyboard(.automatic)
             }

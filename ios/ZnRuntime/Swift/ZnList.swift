@@ -1082,8 +1082,10 @@ struct ZnCollectionList: UIViewRepresentable {
         // Drag to reorder: a plain column or row, no pinned rows (they can't move), as Android's ZnReorder.
         c.canReorder = s.reorderable && sticky.isEmpty && cols == 1
         if cv.dragInteractionEnabled != c.canReorder { cv.dragInteractionEnabled = c.canReorder }
-        // Inside a Pressable: the list takes the drag from it (ZnPressInner.swift).
-        ZnPressInner.note(cv, ancestors: context.environment.znPressAncestors, native: false)
+        // Inside a Pressable: the list takes the drag from it (ZnPressInner.swift); not under pointerEvents "none" /
+        // "box-only" (SwiftUI keeps the list out of the hit test there: the Pressable keeps the touch).
+        let e = context.environment
+        ZnPressInner.note(cv, ancestors: e.znTouchOff ? [] : e.znPressAncestors, native: false)
         // The environment the cells need (a UIHostingConfiguration cell doesn't inherit it).
         var env = ZnHostedEnv(context.environment)
         // The header, footer and empty item can't be picked up: they keep their onLongPress (only rows lose it).
@@ -1143,6 +1145,7 @@ struct ZnCollectionList: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ cv: ZnListCollectionView, coordinator c: Coordinator) {
+        ZnPressInner.note(cv, ancestors: [], native: false)
         c.element(nil, follow: nil, cv)
         c.scroll.detach()
         c.endReorderWait()
