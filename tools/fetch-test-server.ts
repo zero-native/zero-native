@@ -103,6 +103,8 @@ interface WsData {
 }
 let wsLog: string[] = []
 let wsOpen = 0
+// ZN_TEST_WS_TRACE=1: log each socket's open with the time (ms, last 5 digits), to see when a slow one came.
+const wsTrace = process.env.ZN_TEST_WS_TRACE === "1"
 
 const json = (data: unknown, init: ResponseInit = {}) =>
   new Response(JSON.stringify(data), { ...init, headers: { "content-type": "application/json", ...init.headers } })
@@ -114,6 +116,7 @@ Bun.serve<WsData, never>({
     const url = new URL(req.url)
     const path = url.pathname
     if (path === "/ws") {
+      if (wsTrace) console.log(`ws: upgrade asked at ${Date.now() % 100000}`)
       const offered = (req.headers.get("sec-websocket-protocol") ?? "").split(",").map((p) => p.trim()).filter(Boolean)
       const headers: Record<string, string> = {}
       if (url.searchParams.has("proto") && offered.length > 0) headers["Sec-WebSocket-Protocol"] = offered[0]!
@@ -226,6 +229,7 @@ Bun.serve<WsData, never>({
   websocket: {
     open(ws: ServerWebSocket<WsData>) {
       wsOpen++
+      if (wsTrace) console.log(`ws: open at ${Date.now() % 100000} (${wsOpen} open)`)
       const q = ws.data.query
       if (q.has("headers")) ws.send(JSON.stringify(ws.data.headers))
       for (let i = 0; i < Number(q.get("burst") ?? 0); i++) ws.send(String(i))

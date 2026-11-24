@@ -208,8 +208,11 @@ function checksFor(port: number): Array<[string, Check]> {
       must(got.every((d, i) => d === `n${i}`), `out of order near ${got.findIndex((d, i) => d !== `n${i}`)}`)
       return "n0 … n199 in order"
     }],
+    // To 127.0.0.1, not localhost: on the iOS simulator each URLSession connection looks "localhost" up by itself, and 80
+    // lookups at once queue (the first open after ~0.8 s, the last after 2-3 s, now and then past 8 s; 2026-11-24). By
+    // address all 80 open in 0.2-0.4 s. Still one host, so it still checks that nothing caps sockets per host.
     ["80 sockets to one host", async () => {
-      const all = Array.from({ length: 80 }, () => track(W))
+      const all = Array.from({ length: 80 }, () => track(`ws://127.0.0.1:${port}/ws`))
       await Promise.all(all.map((t) => next(t, "open", 8000)))
       all.forEach((t, i) => t.ws.send(`socket ${i}`))
       const got = await Promise.all(all.map((t) => next(t, "message")))
