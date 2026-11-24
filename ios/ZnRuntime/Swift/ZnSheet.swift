@@ -201,7 +201,8 @@ struct ZnSheetPresenter: UIViewControllerRepresentable {
 /// the screen below takes the next tap at once, and onDismiss is sent once per close.
 /// - A drag-down, a fling or a tap outside sends onDismiss and slides the sheet down, taking no touches; if JS keeps
 ///   `visible` true, it comes back up after `keepOpen` (Android's KEEP_OPEN_MS). Not dismissible: it springs back.
-/// - JS closes it: it leaves the screen at once and a picture of it slides down, taking no touches.
+/// - JS closes it: it leaves the screen at once and a picture of it slides down, taking no touches (in the user's close,
+///   already sliding down, that slide goes on and it leaves at its end).
 /// - Looks as UIKit's sheet did on iOS 18: dim black 12%, corners 10 pt, a 36 x 5 grabber 5 pt from the top. The
 ///   Sheet's backgroundColor and borderRadius, when written, colour the card and round its top corners.
 final class ZnSheetLayer: UIViewController, UIGestureRecognizerDelegate {
@@ -225,6 +226,8 @@ final class ZnSheetLayer: UIViewController, UIGestureRecognizerDelegate {
     private var waitsToOpen = false
     /// The user asked to close and JS hasn't answered yet.
     private var dismissing = false
+    /// JS closed it while the user's close slid it down: it leaves the box when that slide ends.
+    private var leaveWhenDown: (() -> Void)?
     private var dragging = false
     private var moved = false
     private var open = false
@@ -339,10 +342,19 @@ final class ZnSheetLayer: UIViewController, UIGestureRecognizerDelegate {
 
     /// Follows [v]'s presentation layer each frame until its animations end (a UIKit animation sets the end values at
     /// once; the presentation layer has the frame on screen).
-    private func trackProgress(_ v: UIView, shift: CGFloat = 0) {
+    ///
+    /// [from]: where the animation starts, read while the presentation layer doesn't have it yet (2026-11-24 iPhone
+    /// check, a flick close moved m.progress in steps):
+    /// - a picture made for the slide-down has no presentation layer before its first frame is drawn, and its frame is
+    ///   already the end: read that, the progress dropped to 0 for a frame and came back;
+    /// - right after a drag, a tick can come before the animation is committed: the presentation layer still holds
+    ///   the place before the drag's last move (a step back against the finger). Until it moves from there, [from].
+    private func trackProgress(_ v: UIView, shift: CGFloat = 0, from: CGFloat? = nil) {
         guard element != nil, !gone else { return }
         tracked = v
         trackedShift = shift
+        trackedFrom = from
+        staleY = from == nil ? nil : v.layer.presentation()?.frame.minY
         guard progressLink == nil else { return }
         let link = CADisplayLink(target: ZnSheetTick(self), selector: #selector(ZnSheetTick.tick(_:)))
         link.add(to: .main, forMode: .common)
@@ -353,11 +365,26 @@ final class ZnSheetLayer: UIViewController, UIGestureRecognizerDelegate {
         progressLink?.invalidate()
         progressLink = nil
         tracked = nil
+        trackedFrom = nil
+        staleY = nil
     }
+
+    private var trackedFrom: CGFloat?
+    /// The presentation layer's place when the animation was added: while it still reads that, it isn't drawn yet.
+    private var staleY: CGFloat?
+    #if DEBUG
+    /// The top edge the progress was last read from (the frame log).
+    private var shownY: CGFloat?
+    #endif
 
     fileprivate func progressTick() {
         guard let v = tracked else { return stopProgress() }
-        let y = (v.layer.presentation()?.frame.minY ?? v.frame.minY) + trackedShift
+        let shown = v.layer.presentation()?.frame.minY
+        if let shown, shown != staleY { trackedFrom = nil; staleY = nil }  // the animation is drawn now
+        guard let y = trackedFrom ?? shown.map({ $0 + trackedShift }) else { return }
+        #if DEBUG
+        shownY = y
+        #endif
         setProgress(progressAt(y))
         if v.layer.animationKeys()?.isEmpty ?? true { stopProgress() }
     }
@@ -368,9 +395,45 @@ final class ZnSheetLayer: UIViewController, UIGestureRecognizerDelegate {
         if ZnGestureHub.log, element != nil, Int(p * 10) != Int(progress.v * 10) || (p == 0) != (progress.v == 0) {
             print("zn t=\(ZnDebug.ms()) sheet: progress \(String(format: "%.2f", p))")
         }
+        frameWrites += 1
         #endif
         progress.write(p)
     }
+
+    #if DEBUG
+    /// ZN_SHEET_FRAMES=1 (Debug): one line per display frame while the sheet slides (open, close, spring), with the
+    /// progress on that frame and how many times it was written since the frame before, so a step (a frame with no
+    /// write while the sheet moves) shows in the log.
+    static let frames = ProcessInfo.processInfo.environment["ZN_SHEET_FRAMES"] == "1"
+    private var frameWrites = 0
+    private var frameLink: CADisplayLink?
+    private var frameQuiet = 0
+    private var frameWhy = ""
+
+    /// Starts (or keeps) the frame log, naming why it runs.
+    func logFrames(_ why: String) {
+        guard Self.frames, element != nil else { return }
+        frameWhy = why
+        frameQuiet = 0
+        guard frameLink == nil else { return }
+        let link = CADisplayLink(target: ZnSheetTick(self), selector: #selector(ZnSheetTick.frame(_:)))
+        link.add(to: .main, forMode: .common)
+        frameLink = link
+    }
+
+    fileprivate func frameTick(_ link: CADisplayLink) {
+        // The top edge the progress was read from last (the drag's own, or the followed view's on screen).
+        let y = shownY ?? top
+        print("zn t=\(ZnDebug.ms()) sheet-frame: \(frameWhy) p=\(String(format: "%.4f", progress.v)) writes=\(frameWrites) y=\(String(format: "%.1f", y))\(progressLink == nil ? "" : " link")\(gone ? " gone" : "")")
+        // Stops 10 frames after the progress stopped being written.
+        frameQuiet = frameWrites == 0 ? frameQuiet + 1 : 0
+        frameWrites = 0
+        if frameQuiet >= 10 {
+            link.invalidate()
+            frameLink = nil
+        }
+    }
+    #endif
 
     /// The sheet has gone: 0, and its reader goes (the value keeps 0).
     private func progressGone() {
@@ -384,7 +447,12 @@ final class ZnSheetLayer: UIViewController, UIGestureRecognizerDelegate {
         restBottom = bottom - safeBottom
         tallest = detents.map(height).max() ?? 0
         // (While a UIKit animation runs, the link reads where the card is drawn: these are its end values.)
-        if progressLink == nil, !gone { setProgress(progressAt(top)) }
+        if progressLink == nil, !gone {
+            #if DEBUG
+            shownY = top
+            #endif
+            setProgress(progressAt(top))
+        }
         let w = view.bounds.width
         dim.frame = view.bounds
         let lowest = rests.max() ?? screenH
@@ -430,6 +498,9 @@ final class ZnSheetLayer: UIViewController, UIGestureRecognizerDelegate {
         guard !laidOut.isEmpty else { waitsToOpen = true; return }  // no size yet: its first real layout opens it
         guard !open else { return }  // opened at rest in that layout (animateIn false)
         open = true
+        #if DEBUG
+        logFrames("open")
+        #endif
         animate(to: rest(detent), duration: 0.45)
     }
 
@@ -447,8 +518,10 @@ final class ZnSheetLayer: UIViewController, UIGestureRecognizerDelegate {
     private func animate(to y: CGFloat, velocity: CGFloat = 0, duration: TimeInterval = 0.4,
                          done: ((Bool) -> Void)? = nil) {
         let distance = y - top
+        // Not moving (after a drag): the slide starts at its place now, which the presentation layer may not have yet.
+        let still = card.layer.animationKeys()?.isEmpty ?? true
+        trackProgress(card, from: still ? top : nil)
         top = y
-        trackProgress(card)
         UIView.animate(withDuration: duration, delay: 0, usingSpringWithDamping: 1,
                        initialSpringVelocity: abs(distance) > 1 ? velocity / distance : 0,
                        options: [.allowUserInteraction, .beginFromCurrentState]) { self.place() } completion: { done?($0) }
@@ -469,8 +542,16 @@ final class ZnSheetLayer: UIViewController, UIGestureRecognizerDelegate {
         dismissing = true
         takesTouches(false)
         print("zn t=\(ZnDebug.ms()) sheet: closed by the user → onDismiss to JS")
+        #if DEBUG
+        logFrames("close")
+        #endif
         onAttempt()
         animate(to: screenH, velocity: velocity, duration: 0.3) { [weak self] _ in
+            // JS closed it on the way down: it goes now.
+            if let go = self?.leaveWhenDown {
+                self?.leaveWhenDown = nil
+                return go()
+            }
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.keepOpen) {
                 guard let self, self.dismissing, !self.closed else { return }
                 print("zn t=\(ZnDebug.ms()) sheet: JS kept it open: back up")
@@ -520,6 +601,9 @@ final class ZnSheetLayer: UIViewController, UIGestureRecognizerDelegate {
             guard !closed, !dismissing else { return }
             dragging = true
             moved = false
+            #if DEBUG
+            logFrames("drag")
+            #endif
             // Caught while it moves: from where it is on screen.
             if let p = card.layer.presentation() { top = p.frame.minY }
             [card, dim, content.view, grabber].forEach { $0.layer.removeAllAnimations() }
@@ -604,8 +688,24 @@ extension ZnSheetLayer: ZnPopupLayer {
     /// picture of it slides down in its place, taking no touches. What it presented is ZnPopups' business (S5).
     func leave(animated: Bool, in box: ZnPopupBox) {
         closed = true
+        #if DEBUG
+        logFrames("leave")
+        #endif
         takesTouches(false)
         if isViewLoaded { view.accessibilityElementsHidden = true }
+        // The user's close (a drag, a flick, a tap outside) is sliding it down, and JS answered with visible false: that
+        // slide goes on, taking no touches, and it leaves the box at its end, as Android's sheet slides down itself. A
+        // picture in its place started again from standing still, a frame or two late (the snapshot and the drop on
+        // the main thread): the sheet and m.progress stopped and started again in a flick close (2026-11-24 iPhone
+        // check).
+        if animated, dismissing, isViewLoaded, !(card.layer.animationKeys()?.isEmpty ?? true) {
+            leaveWhenDown = { [weak self, weak box] in
+                guard let self else { return }
+                self.progressGone()
+                box?.drop(self)
+            }
+            return
+        }
         if animated, isViewLoaded, !laidOut.isEmpty, let pic = card.snapshotView(afterScreenUpdates: false) {
             let from = card.layer.presentation()?.frame.minY ?? card.frame.minY
             if from < screenH - 1 {
@@ -621,7 +721,7 @@ extension ZnSheetLayer: ZnPopupLayer {
                 box.insertSubview(ghost, aboveSubview: view)  // in its own place: under any layer over it
                 // m.progress follows the picture down (Android's sheet slides down itself).
                 stopProgress()
-                trackProgress(pic, shift: from - pic.frame.minY)
+                trackProgress(pic, shift: from - pic.frame.minY, from: from)
                 UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 1, initialSpringVelocity: 0) {
                     pic.frame.origin.y = box.bounds.height
                     shade.alpha = 0
@@ -648,4 +748,11 @@ private final class ZnSheetTick: NSObject {
         guard let sheet else { return link.invalidate() }
         sheet.progressTick()
     }
+
+    #if DEBUG
+    @objc func frame(_ link: CADisplayLink) {
+        guard let sheet else { return link.invalidate() }
+        sheet.frameTick(link)
+    }
+    #endif
 }
