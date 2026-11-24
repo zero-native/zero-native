@@ -36,7 +36,9 @@ extension ZnCollectionList.Coordinator: UICollectionViewDragDelegate, UICollecti
         // preview is the row as it shows instead, from the moment the finger moves (the drop then flies it to its
         // place: drop(_:at:in:_:moving:)). UIKit's lift preview, while the finger holds still after the pick, is
         // still upside down: it is drawn from the cell's last frame with no say for the app (tried 2026-11-24:
-        // unflipping the cell for the lift, or flipping the cell instead of its content, didn't change it).
+        // unflipping the cell for the lift, or flipping the cell instead of its content, didn't change it). A drag let
+        // go outside the list is the same: UIKit flies it back as it does the lift, upside down from the place mirrored
+        // in the list to its own, turning upright on the way (seen 2026-11-24; no say for the app either).
         if cv.transform.d < 0, let cell = cv.cellForItem(at: ip) {
             let image = znUprightImage(of: cell)
             picked.image = image
@@ -90,7 +92,8 @@ extension ZnCollectionList.Coordinator: UICollectionViewDragDelegate, UICollecti
                               rows: rows.count)
         let target = IndexPath(item: to, section: rowsPart)
         dropShown = nil
-        // From here UIKit only animates the row into its place: JS's rows can go in again.
+        // From here UIKit only animates the row into its place: JS's rows can go in again (an inverted list's once
+        // its row has landed: drop's dropFlying).
         dropDone = true
         defer { flushHeld(cv) }
         // The row's own cell (UIKit hides it while it is dragged): it moves to its place under the flying row (drop).
@@ -129,10 +132,23 @@ extension ZnCollectionList.Coordinator: UICollectionViewDragDelegate, UICollecti
         let place = cv.convert(frame, to: container)
         let target = UIDragPreviewTarget(container: container, center: CGPoint(x: place.midX, y: place.midY))
         // Its cell stays hidden while it slides from the old place to the new one under the flying row (it showed: a
-        // second copy of the row coming up from the bottom), and shows when the row lands.
-        let cell = moving ?? cv.cellForItem(at: ip)
+        // second copy of the row coming up from the bottom), and shows when the row lands. The cell's content view:
+        // UIKit sets the cell itself back to shown as the drag session ends, before the row lands (seen 2026-11-24).
+        // JS's rows wait until it lands (dragBusy): a reload meanwhile could give the hidden cell to another row (it
+        // would stay unseen) or the row to another cell (a second copy under the flying one). VoiceOver passes over
+        // the hidden row too, as it isn't seen.
+        let cell = (moving ?? cv.cellForItem(at: ip))?.contentView
         cell?.alpha = 0
-        coordinator.drop(dragItem, to: target).addCompletion { [weak cell] _ in cell?.alpha = 1 }
+        cell?.accessibilityElementsHidden = true
+        dropFlying = true
+        coordinator.drop(dragItem, to: target).addCompletion { [weak self, weak cv, weak cell] _ in
+            cell?.alpha = 1
+            cell?.accessibilityElementsHidden = false
+            print("zn t=\(ZnDebug.ms()) list: reorder: the dropped row landed, its cell shows")
+            guard let self else { return }
+            self.dropFlying = false
+            if let cv { self.flushHeld(cv) }
+        }
     }
 
     func collectionView(_ cv: UICollectionView, dropSessionDidEnd session: UIDropSession) {
@@ -141,6 +157,7 @@ extension ZnCollectionList.Coordinator: UICollectionViewDragDelegate, UICollecti
     }
 
     func collectionView(_ cv: UICollectionView, dragSessionDidEnd session: UIDragSession) {
+        print("zn t=\(ZnDebug.ms()) list: reorder: the drag ended (a dropped row still flying: \(dropFlying))")
         dropDone = true
         flushHeld(cv)
     }
@@ -150,7 +167,7 @@ extension ZnCollectionList.Coordinator: UICollectionViewDragDelegate, UICollecti
     /// UIKit is moving rows for a drag now: no batch updates or reloads then (they would clash with its own). Once
     /// the drop is done (the row only glides into place, about a second on the simulator) they can go in.
     func dragBusy(_ cv: UICollectionView) -> Bool {
-        cv.hasUncommittedUpdates || (!dropDone && (cv.hasActiveDrag || cv.hasActiveDrop))
+        cv.hasUncommittedUpdates || dropFlying || (!dropDone && (cv.hasActiveDrag || cv.hasActiveDrop))
     }
 
     /// The drag ended: JS's rows that came meanwhile go in (once UIKit has finished the drop).

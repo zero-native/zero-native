@@ -1225,6 +1225,8 @@ struct ZnCollectionList: UIViewRepresentable {
         /// performed (or it ended without one).
         var held: (() -> Void)?
         var dropDone = true
+        /// An inverted list's dropped row is flying to its place, its cell hidden (ZnListReorder.drop): rows wait.
+        var dropFlying = false
         /// The image preload (ZnImagePreload.swift): this list's id there, and the direction it last moved.
         lazy var preloadOwner = ObjectIdentifier(self).hashValue
         var preloadFirst = -1

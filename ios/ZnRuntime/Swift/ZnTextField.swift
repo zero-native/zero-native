@@ -604,7 +604,8 @@ struct ZnUIKitField: UIViewRepresentable {
         /// phone rule don't apply to JS's value (as with `f.text =`). Only while the user can type (focused and
         /// editable): keys queue only then; otherwise `f.text =` as before. Undo: as `f.text =` did, nothing is left to
         /// undo after JS's value (the field's undo history is cleared). Kept, one undo would take back only JS's
-        /// regroup, JS would regroup again at once, and undo would seem to do nothing.
+        /// regroup, JS would regroup again at once, and undo would seem to do nothing. The undo manager is the field's
+        /// own while it edits (UIKit's text undo manager, not the window's: seen 2026-11-24), so only its typing goes.
         func apply(_ value: String, to f: UITextField) {
             guard editable, f.isFirstResponder, let all = f.textRange(from: f.beginningOfDocument, to: f.endOfDocument)
             else { f.text = value; return }
@@ -973,16 +974,20 @@ struct ZnFieldOrder {
     /// nil: in a List row UIKit has no index path for (a cell going away).
     func key(_ field: UIView) -> [Step]? {
         var steps: [Step] = []
-        var below: UIView = field  // the view under the current one on the way up
+        // The cell passed last on the way up since the last List: that List's own cell for the row (as listRow; not
+        // only the List's direct subview, in case UIKit puts a view between them).
+        var cell: UICollectionViewCell?
         var v = field.superview
         var inner: UIView = field  // the block found last (a List, or the field to begin with)
         while let sv = v {
             if let list = sv as? ZnListCollectionView {
-                guard let cell = below as? UICollectionViewCell, let ip = list.indexPath(for: cell) else { return nil }
+                guard let c = cell, let ip = list.indexPath(for: c) else { return nil }
                 steps = [.row(ip), block(inner)] + steps
                 inner = list
+                cell = nil
+            } else if let c = sv as? UICollectionViewCell {
+                cell = c
             }
-            below = sv
             v = sv.superview
         }
         return [block(inner)] + steps
