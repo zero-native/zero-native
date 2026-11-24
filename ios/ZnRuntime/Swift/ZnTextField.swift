@@ -189,12 +189,18 @@ private func znApplyInputTraits(_ v: UIView, _ s: ZnNodeSpec) {
 enum ZnFieldFocus {
     private static var views: [String: WeakView] = [:]
     private static var boxes: [String: WeakView] = [:]
-    final class WeakView { weak var view: UIView?; init(_ v: UIView) { view = v } }
+    final class WeakView {
+        weak var view: UIView?
+        /// A field of a List row JS hasn't mounted yet (a placeholder of its template): its events go nowhere.
+        let placeholder: Bool
+        init(_ v: UIView, placeholder: Bool = false) { view = v; self.placeholder = placeholder }
+    }
 
     static func key(_ inst: ZnInstance, _ node: Int) -> String { "\(ObjectIdentifier(inst).hashValue):\(node)" }
+    /// [v] under its instance; an older key of the same view (its row's placeholder) goes.
     static func register(_ v: UIView, _ inst: ZnInstance, _ node: Int) {
-        views = views.filter { $0.value.view != nil }
-        views[key(inst, node)] = WeakView(v)
+        views = views.filter { $0.value.view != nil && $0.value.view !== v }
+        views[key(inst, node)] = WeakView(v, placeholder: inst.id == 0)
     }
     static func registerBox(_ v: UIView, _ key: String) {
         boxes = boxes.filter { $0.value.view != nil }
@@ -224,9 +230,9 @@ enum ZnFieldFocus {
     /// under pointerEvents "none", on a hidden tab (Compose can still focus a readOnly or untouchable field: iOS only,
     /// as a read-only one-line field takes no focus here, decision 1). A List row's field goes on to its List's next
     /// rows first, also those past its edge (nextRow). False when there is none: the keyboard then closes, as before.
-    static func focusNext(after field: UIView) -> Bool { focusNext(after: field, rowsOn: 0) }
+    static func focusNext(after field: UIView) -> Bool { focusNext(after: field, rowsOn: 0, waits: 0) }
 
-    private static func focusNext(after field: UIView, rowsOn: Int) -> Bool {
+    private static func focusNext(after field: UIView, rowsOn: Int, waits: Int) -> Bool {
         guard let window = field.window else { return false }
         let screen = znNearestController(field)
         let me = field.convert(field.bounds, to: window)
@@ -236,16 +242,16 @@ enum ZnFieldFocus {
             guard abs(a.midY - b.midY) < min(a.height, b.height) / 2 else { return a.midY < b.midY }
             return rtl ? a.maxX > b.maxX : a.minX < b.minX
         }
-        let after = views.compactMap { (key, w) -> (UIView, CGRect)? in
+        let after = views.compactMap { (key, w) -> (UIView, CGRect, Bool)? in
             guard let v = w.view, v !== field, v.window === window, !v.isHidden, v.isUserInteractionEnabled,
                   boxes[key]?.view?.isHidden != true, znNearestController(v) === screen else { return nil }
             if let t = v as? UITextView, !t.isEditable { return nil }
             let f = v.convert(v.bounds, to: window)
-            return before(me, f) ? (v, f) : nil
+            return before(me, f) ? (v, f, w.placeholder) : nil
         }.sorted { before($0.1, $1.1) }
         // A field that says no (editable={false} refuses in textFieldShouldBeginEditing): the one after it.
-        func take(_ list: [(UIView, CGRect)]) -> Bool {
-            for (v, _) in list where v.becomeFirstResponder() {
+        func take(_ list: [(UIView, CGRect, Bool)]) -> Bool {
+            for (v, _, placeholder) in list where !placeholder && v.becomeFirstResponder() {
                 print("zn t=\(ZnDebug.ms()) field: next → the field at y \(Int(v.convert(v.bounds, to: window).minY))")
                 return true
             }
@@ -253,7 +259,16 @@ enum ZnFieldFocus {
         }
         // In a List, its own rows come first, also those not made yet (nextRow), before a field below the List.
         if let row = listRow(of: field) {
-            if take(after.filter { $0.0.isDescendant(of: row.list) }) { return true }
+            let mine = after.filter { $0.0.isDescendant(of: row.list) }
+            // The next row is a placeholder (JS mounts it a moment after it shows): wait for it, up to a second.
+            if let first = mine.first, first.2, waits < 20 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    guard field.isFirstResponder else { return }  // the user moved on meanwhile
+                    if !focusNext(after: field, rowsOn: rowsOn, waits: waits + 1) { field.resignFirstResponder() }
+                }
+                return true
+            }
+            if take(mine) { return true }
             if nextRow(after: field, in: row, rowsOn: rowsOn) { return true }
         }
         return take(after)
@@ -293,7 +308,7 @@ enum ZnFieldFocus {
         print("zn t=\(ZnDebug.ms()) field: next → showing list row \(next.item) (section \(next.section)) to look there")
         DispatchQueue.main.async {
             guard field.isFirstResponder else { return }  // the user moved on meanwhile
-            if !focusNext(after: field, rowsOn: rowsOn + 1) { field.resignFirstResponder() }
+            if !focusNext(after: field, rowsOn: rowsOn + 1, waits: 0) { field.resignFirstResponder() }
         }
         return true
     }
@@ -419,6 +434,18 @@ struct ZnFieldBoxMarker: UIViewRepresentable {
     }
 }
 
+/// Registers a field's native view for focus (ZnFieldFocus) and for its ref's calls (ZnKeyboard) under [inst], and again
+/// when the view moves to another instance: a List row first drawn as a placeholder of its template, then mounted by
+/// JS, keeps its native view, which stayed registered under the placeholder (2026-11-24: "next" focused such a row
+/// and its onFocus went nowhere; its ref's focus() found nothing).
+@MainActor func znFieldRegister(_ v: UIView, _ inst: ZnInstance, _ s: ZnNodeSpec, last: inout ObjectIdentifier?) {
+    let id = ObjectIdentifier(inst)
+    guard last != id else { return }
+    last = id
+    ZnFieldFocus.register(v, inst, s.index)
+    if s.ref != 0 { ZnKeyboard.attach(v, inst.id, s.ref) }
+}
+
 /// The value JS sent: (change number it answers, or nil for a plain value; the text).
 func znFieldValue(_ v: ZnValue) -> (Int?, String) {
     let text = znDisplay(v)
@@ -444,8 +471,7 @@ struct ZnUIKitField: UIViewRepresentable {
         f.addTarget(context.coordinator, action: #selector(Coordinator.changed(_:)), for: .editingChanged)
         f.setContentHuggingPriority(.defaultLow, for: .horizontal)
         f.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        ZnFieldFocus.register(f, inst, s.index)
-        if s.ref != 0 { ZnKeyboard.attach(f, inst.id, s.ref) }
+        znFieldRegister(f, inst, s, last: &context.coordinator.registered)
         if s.autoFocus && look.editable { DispatchQueue.main.async { f.becomeFirstResponder() } }
         return f
     }
@@ -458,6 +484,7 @@ struct ZnUIKitField: UIViewRepresentable {
 
     func updateUIView(_ f: UITextField, context: Context) {
         let c = context.coordinator
+        znFieldRegister(f, inst, s, last: &c.registered)
         c.send = { [ctx, inst, s] event, text in ctx.send(inst.id, event, text.map(ZnPayload.string) ?? .none) }
         c.focusChanged = { [ctx, inst, s] focused in if s.ref != 0 { ctx.send(inst.id, s.ref, .bool(focused)) } }
         c.s = s
@@ -521,6 +548,8 @@ struct ZnUIKitField: UIViewRepresentable {
     }
 
     final class Coordinator: NSObject, UITextFieldDelegate {
+        /// The instance the view is registered under (znFieldRegister).
+        var registered: ObjectIdentifier?
         var send: (Int, String?) -> Void = { _, _ in }
         /// A `<TextField ref>`'s focus, for its handle's isFocused().
         var focusChanged: (Bool) -> Void = { _ in }
@@ -715,8 +744,7 @@ struct ZnUIKitTextView: UIViewRepresentable {
             placeholder.widthAnchor.constraint(equalTo: v.frameLayoutGuide.widthAnchor),
         ])
         context.coordinator.placeholder = placeholder
-        ZnFieldFocus.register(v, inst, s.index)
-        if s.ref != 0 { ZnKeyboard.attach(v, inst.id, s.ref) }
+        znFieldRegister(v, inst, s, last: &context.coordinator.registered)
         if s.autoFocus && look.editable { DispatchQueue.main.async { v.becomeFirstResponder() } }
         return v
     }
@@ -734,6 +762,7 @@ struct ZnUIKitTextView: UIViewRepresentable {
 
     func updateUIView(_ v: ZnFieldTextView, context: Context) {
         let c = context.coordinator
+        znFieldRegister(v, inst, s, last: &c.registered)
         c.send = { [ctx, inst] event, text in ctx.send(inst.id, event, text.map(ZnPayload.string) ?? .none) }
         c.focusChanged = { [ctx, inst, s] focused in if s.ref != 0 { ctx.send(inst.id, s.ref, .bool(focused)) } }
         c.s = s
@@ -794,6 +823,8 @@ struct ZnUIKitTextView: UIViewRepresentable {
     }
 
     final class Coordinator: NSObject, UITextViewDelegate {
+        /// The instance the view is registered under (znFieldRegister).
+        var registered: ObjectIdentifier?
         var send: (Int, String?) -> Void = { _, _ in }
         /// A `<TextField ref>`'s focus, for its handle's isFocused().
         var focusChanged: (Bool) -> Void = { _ in }
