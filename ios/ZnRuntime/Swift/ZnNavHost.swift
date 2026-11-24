@@ -528,16 +528,15 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
 
     /// The back swipe on a see-through screen: it follows the finger over the still screens below; let go past half
     /// (or flung), it leaves and JS hears FORCED_BACK, as after a pop.
-    /// [down]: the drag down on a see-through "modal" screen (its own thresholds, ZnModalDrag.finishes).
-    private func dragSeeThrough(_ box: ZnSeeThroughBox, _ g: UIPanGestureRecognizer, _ progress: CGFloat, down: Bool = false) {
+    private func dragSeeThrough(_ box: ZnSeeThroughBox, _ g: UIPanGestureRecognizer, _ progress: CGFloat) {
         switch g.state {
         case .began, .changed:
             box.drag(progress)
         case .ended, .cancelled, .failed:
             dragging = nil
-            let speed = down ? g.velocity(in: view).y : g.velocity(in: view).x
-            let finish = g.state == .ended && (down ? ZnModalDrag.finishes(progress, speed: speed) : progress > 0.5 || speed > 600)
-            print("zn t=\(ZnDebug.ms()) nav: \(down ? "drag down" : "swipe back") \(finish ? "finished" : "cancelled") (see-through)")
+            let speed = g.velocity(in: view).x
+            let finish = g.state == .ended && (progress > 0.5 || speed > 600)
+            print("zn t=\(ZnDebug.ms()) nav: swipe back \(finish ? "finished" : "cancelled") (see-through)")
             endSeeThrough(box, finish: finish, speed: speed)
         default:
             break
