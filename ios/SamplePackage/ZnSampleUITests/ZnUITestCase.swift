@@ -28,19 +28,24 @@ class ZnUITestCase: XCTestCase {
     @discardableResult
     func launch(_ route: String, params: String? = nil, arguments: [String] = [], until: () -> XCUIElement,
                 file: StaticString = #filePath, line: UInt = #line) -> XCUIApplication {
-        let app = XCUIApplication()
+        let app = newApp()
         app.launchEnvironment["ZN_ROUTE"] = route
         if let params { app.launchEnvironment["ZN_PARAMS"] = params }
-        // TEST_RUNNER_ZN_APP_<NAME>=v (the runner's environment; xcodebuild hands it to the tests as ZN_APP_<NAME>):
-        // <NAME>=v for the app, e.g. TEST_RUNNER_ZN_APP_ZN_MOTION_ENGINE=0.
-        for (k, v) in ProcessInfo.processInfo.environment where k.hasPrefix("ZN_APP_") {
-            app.launchEnvironment[String(k.dropFirst("ZN_APP_".count))] = v
-        }
         app.launchArguments += arguments
         app.launch()
         self.app = app
         let ready = until()
         XCTAssertTrue(appears(ready, timeout: 30), "\(route): no \(ready) after 30 s", file: file, line: line)
+        return app
+    }
+
+    /// The sample, not launched yet. TEST_RUNNER_ZN_APP_<NAME>=v (the runner's environment; xcodebuild hands it to the
+    /// tests as ZN_APP_<NAME>) gives the app <NAME>=v, e.g. TEST_RUNNER_ZN_APP_ZN_CONSOLE_FILE=1 (its console to a file).
+    func newApp() -> XCUIApplication {
+        let app = XCUIApplication()
+        for (k, v) in ProcessInfo.processInfo.environment where k.hasPrefix("ZN_APP_") {
+            app.launchEnvironment[String(k.dropFirst("ZN_APP_".count))] = v
+        }
         return app
     }
 

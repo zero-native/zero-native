@@ -19,6 +19,7 @@
 //   ZN_BGTASK_MS     how long the background task's lab.wait runs (default 3000; e.g. 60000 to see iOS end it) (debug)
 //   ZN_MEDIA_FAKE_CAMERA  1: Media.takePhoto answers with a drawn photo where there is no camera (the simulator) (debug)
 //   ZN_FETCH_LOG     1: log what a fetch observer hears as each call ends (the Perf plugin's network traces) (debug)
+//   ZN_CONSOLE_FILE  1: the console also to tmp/zn-console.log in the app's data container (a UI test run) (debug)
 import UIKit
 import notify
 #if canImport(ZnRuntime)  // an app on the Swift package; the CMake build compiles everything into the app
@@ -52,6 +53,15 @@ final class ZnAppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         let env = ProcessInfo.processInfo.environment
+        #if DEBUG
+        // ZN_CONSOLE_FILE=1: the app's console (print) also goes to tmp/zn-console.log in its data container, for a run
+        // nobody attaches to (a UI test: TEST_RUNNER_ZN_APP_ZN_CONSOLE_FILE=1; read it with simctl get_app_container).
+        if env["ZN_CONSOLE_FILE"] == "1" {
+            let path = NSTemporaryDirectory() + "zn-console.log"
+            if freopen(path, "a", stdout) != nil { setvbuf(stdout, nil, _IOLBF, 0) }
+            print("zn-sample: console to \(path)")
+        }
+        #endif
         // Plugins first, before the bundle runs (docs/plugins.md). PerfPlugin before the other Firebase plugins (it sets
         // Firebase's own hooks before Firebase starts) and before the first fetch (its network traces watch core's fetch).
         ZnPlugins.register(PerfPlugin())
