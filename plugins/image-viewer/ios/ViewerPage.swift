@@ -258,6 +258,7 @@ final class ViewerPage: UIView {
         failed = true
         spinner.stopAnimating()
         errorView.isHidden = false
+        errorView.tries = load
         print("zn image-viewer: failed \(image.uri.hasPrefix("data:") || image.uri == ViewerRules.heldData ? "data: picture" : String(image.uri.prefix(80)))")
         scope.emit("error")
     }
@@ -357,6 +358,9 @@ final class ViewerErrorView: UIStackView {
     private let label = UILabel()
     private let button = UIButton(type: .system)
     var onRetry: (() -> Void)?
+    /// How many loads this error came after, for UI tests: the retry button's identifier is imageviewer-retry-n
+    /// (VoiceOver doesn't read identifiers).
+    var tries = 0 { didSet { button.accessibilityIdentifier = "imageviewer-retry-\(tries)" } }
 
     init() {
         super.init(frame: .zero)

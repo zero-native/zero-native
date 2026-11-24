@@ -57,8 +57,8 @@ export function ImageViewerScreen(props: ImageViewerScreenProps) {
   })
   const pager = listController()
   pager.scrollToIndex({ index: o.index, animated: false })
-  // The screen turned: the pages change width, so put the photo shown back in place (iOS's list keeps its offset in
-  // points, so it would sit between two pages).
+  // The screen turned: the pages change width, so put the photo shown back in place. The list keeps its first item
+  // on both platforms; this is the page JS knows, once the pages have their new width.
   let laidOutFor = width()
   effect(() => {
     const w = width()
@@ -165,6 +165,8 @@ export function ImageViewerScreen(props: ImageViewerScreenProps) {
       <Column style={{ position: "absolute", top: 0, start: 0, end: 0, opacity: backdrop, paddingBottom: 24, backgroundColor: "rgba(0,0,0,0.35)" }}>
         <Column style={{ height: env.insets.top }} />
         <Row style={{ height: 56, alignItems: "center", paddingHorizontal: 4 }}>
+          {/* Clear of the notch side when turned (the screen is full bleed on every side). */}
+          <Column style={{ width: env.insets.start }} />
           <Pressable onPress={close} accessibilityLabel={o.closeLabel} style={{ width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" }}>
             <Text fontSize={22} color="#FFFFFF">
               ✕
@@ -175,6 +177,7 @@ export function ImageViewerScreen(props: ImageViewerScreenProps) {
               {`${page() + 1} / ${count}`}
             </Text>
           ) : null}
+          <Column style={{ width: env.insets.end }} />
         </Row>
       </Column>
     </Stack>
