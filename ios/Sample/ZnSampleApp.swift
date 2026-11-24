@@ -8,6 +8,8 @@
 //   ZN_JS_DELAY_MS   start JS this much later, to see the skeleton on its own (debug)
 //   ZN_COUNT_BODIES  1: log how many SwiftUI bodies each batch ran (debug)
 //   ZN_OTA_KEY       the OTA public key to trust instead of the sample's (debug: a test store with its own key)
+//   ZN_OTA_URL       the update server instead of http://localhost:8790 (debug: a test server on its own port, or the
+//                    Mac's LAN address from an iPhone; tools/ota/test-server.ts)
 //   ZN_OTA_HEALTHY_MS  a downloaded bundle is healthy this long after its first screens (debug; default 4000)
 //   ZN_ANIM_SPEED    the window's animation speed, e.g. 0.1: every animation 10x slower, to tap during one (debug)
 //   ZN_TOUCH_LOG     1: log each touch that begins, with the view it hits (debug)
@@ -105,10 +107,12 @@ final class ZnAppDelegate: UIResponder, UIApplicationDelegate {
         // simulator reaches it at localhost), staging channel, signed with the sample's key (the private key stays in
         // ~/.zero-native/keys). As android/sample's SampleApp.kt. A real app uses its HTTPS server and a main + backup key.
         var key = Self.sampleOtaKey
+        var server = "http://localhost:8790"
         #if DEBUG
         if let test = env["ZN_OTA_KEY"], !test.isEmpty { key = test }  // debug: a test key's public half (a test store)
+        if let url = env["ZN_OTA_URL"], !url.isEmpty { server = url }  // debug: another update server (tools/ota/test-server.ts)
         #endif
-        var ota = ZnOta.Config(server: "http://localhost:8790", channel: "staging", publicKeys: [key])
+        var ota = ZnOta.Config(server: server, channel: "staging", publicKeys: [key])
         #if DEBUG
         if let ms = env["ZN_OTA_HEALTHY_MS"].flatMap(Double.init) { ota.healthyAfterMs = ms }  // debug: tests' crash window
         #endif
