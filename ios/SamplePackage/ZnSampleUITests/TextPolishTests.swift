@@ -65,7 +65,8 @@ final class TextPolishTests: ZnUITestCase {
         open()
         let field = id("tp-tab-field")
         XCTAssertTrue(appears(field, timeout: 5))
-        let spot = field.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        // In screen points: the field leaves the tree with its tab.
+        let spot = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: field.frame.midX, dy: field.frame.midY))
         id("tp-tab-b").tap()
         let big = id("tp-big-count")
         waitLabel(big, "big taps 0")
