@@ -93,7 +93,11 @@ final class A11yLabTests: ZnUITestCase {
         // 2026-11-24; Android still fires both until ZnSwitch.kt keeps the touch).
         sw.tap()
         waitValue(sw, "1")
+        // A row press would come with the turn or a moment after it: looked for after a short wait.
+        RunLoop.current.run(until: Date().addingTimeInterval(0.6))
         XCTAssertEqual(id("a11y-status").label, "a11y-lab: ready", "A53: the row around the Switch took its tap")
+        // Still a switch to VoiceOver now that its tap is a Button (its element type was 40, .switch, in the run).
+        XCTAssertEqual(sw.elementType, .switch)
         let check = id("a11y-check")
         XCTAssertEqual(check.label, "Save this card")
         XCTAssertEqual(check.value as? String, "1")

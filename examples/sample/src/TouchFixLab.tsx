@@ -12,7 +12,11 @@
 // 6. Feedback to look at: a 40 pt round borderless button (its ripple reaches past it: half the diagonal), and the
 //    Switch / Checkbox halo (a round 20 pt grey halo while pressed, as Android's ripple). A quick tap's ripple fades in
 //    over 75 ms and holds until 225 ms (about 375 ms in all).
-import { Box, Checkbox, Column, Pressable, Row, Scroll, Switch, Text } from "@zeronative/ui"
+// 7. A tap-outside dim (a Pressable drawn over the row) over a Switch row and a field: the dim takes the tap, the
+//    Switch doesn't turn and the field isn't focused (as Android: the topmost takes it).
+// 8. A Switch drawn over a tappable card (its sibling, drawn after it): the Switch takes its tap, the card doesn't fire.
+// fx-log keeps the last events in order, so a test sees a second event that came with the one it waited for.
+import { Box, Checkbox, Column, Pressable, Row, Scroll, Stack, Switch, Text, TextField } from "@zeronative/ui"
 import { signal } from "@zeronative/core"
 import { c } from "./tokens"
 
@@ -31,10 +35,15 @@ function FixCase(props: { title: string; children?: unknown }) {
 
 export function TouchFixLabScreen() {
   const status = signal("ready")
+  const log = signal<string[]>([])
   const say = (s: string) => {
     status.set(s)
+    log.set([...log(), s].slice(-8))
     console.info(`touch-fix ${s}`)
   }
+  const underSw = signal(false)
+  const overSw = signal(false)
+  const note = signal("")
   const sw = signal(false)
   const check = signal(false)
   const railSw = signal(false)
@@ -48,6 +57,9 @@ export function TouchFixLabScreen() {
       </Text>
       <Text testID="fx-status" fontSize={13} color={c.ink}>
         {`status: ${status()}`}
+      </Text>
+      <Text testID="fx-log" fontSize={11} color={c.muted}>
+        {`log: ${log().join(", ")}`}
       </Text>
 
       <FixCase title="1. Controls inside a tappable row">
@@ -131,6 +143,43 @@ export function TouchFixLabScreen() {
             <Text fontSize={14} color={c.ink}>Quick tap</Text>
           </Pressable>
         </Row>
+      </FixCase>
+      <FixCase title="7. A dim over a Switch row and a field">
+        <Stack>
+          <Column style={{ gap: 8 }}>
+            <Pressable testID="fx-under-row" accessibilityLabel="Row under the dim" onPress={() => say("under row")} style={row}>
+              <Row alignItems="center" justifyContent="space-between">
+                <Text fontSize={14} color={c.ink}>Under the dim</Text>
+                <Switch testID="fx-under-switch" accessibilityLabel="Under the dim" value={underSw()} onValueChange={(v) => { underSw.set(v); say(`under switch ${v ? "on" : "off"}`) }} />
+              </Row>
+            </Pressable>
+            <TextField
+              testID="fx-under-field"
+              value={note()}
+              onChangeText={(t) => note.set(t)}
+              onFocus={() => say("under field focus")}
+              placeholder="A field under the dim"
+              style={{ ...row, height: 44 }}
+            />
+          </Column>
+          <Pressable
+            testID="fx-dim"
+            accessibilityLabel="Dim"
+            onPress={() => say("dim")}
+            style={{ position: "absolute", top: 0, bottom: 0, start: 0, end: 0, borderRadius: 8, backgroundColor: "#11182733" }}
+          />
+        </Stack>
+      </FixCase>
+
+      <FixCase title="8. A Switch drawn over a tappable card">
+        <Stack>
+          <Pressable testID="fx-over-card" accessibilityLabel="Card under a Switch" onPress={() => say("over card")} style={{ ...row, height: 64 }}>
+            <Text fontSize={14} color={c.ink}>A card</Text>
+          </Pressable>
+          <Box style={{ position: "absolute", top: 8, end: 8 }}>
+            <Switch testID="fx-over-switch" accessibilityLabel="Over the card" value={overSw()} onValueChange={(v) => { overSw.set(v); say(`over switch ${v ? "on" : "off"}`) }} />
+          </Box>
+        </Stack>
       </FixCase>
       <Box style={{ height: 400 }} />
     </Scroll>

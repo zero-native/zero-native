@@ -16,6 +16,9 @@ final class ImageViewerTests: ZnUITestCase {
         app.launch()
         self.app = app
         XCTAssertTrue(appears(id("iv-status"), timeout: 30), "imageViewerLab: no iv-status after 30 s")
+        // Every case here is the TSX screen (route photoViewer): the lab opens it unless its screen button was tapped.
+        // So an "opened" line hidden under the viewer (opening) still means the TSX one opened.
+        XCTAssertTrue(app.buttons["Screen: new TSX (tap for the old one)"].exists, "the lab doesn't open the TSX screen")
     }
 
     private func status(_ s: String, timeout: TimeInterval = 5, file: StaticString = #filePath, line: UInt = #line) {
@@ -23,12 +26,17 @@ final class ImageViewerTests: ZnUITestCase {
     }
 
     /// The lab's "opened" line. It is written as the viewer opens, so the lab under it may already be out of the
-    /// accessibility tree (the route's accessibilityHidesBelow): either is fine here (testScreensBelowHidden checks it).
+    /// accessibility tree (the route's accessibilityHidesBelow): then the lab's screen button (checked in setUp) says
+    /// which screen opened. Read while it shows, it must say the TSX one.
     private func opening(_ s: String, file: StaticString = #filePath, line: UInt = #line) {
         let st = id("iv-status")
+        var seen = ""
         eventually("status \"\(s)\" or the lab hidden (it is \"\(st.exists ? st.label : "<hidden>")\")", file: file, line: line) {
-            !st.exists || st.label == "status: \(s)"
+            guard st.exists else { return true }
+            seen = st.label
+            return seen == "status: \(s)"
         }
+        XCTAssertFalse(seen.contains("(old screen)"), "the old screen opened: \(seen)", file: file, line: line)
     }
 
     /// The lab's thumbnail n (from 1): a button read as "Store photo n".

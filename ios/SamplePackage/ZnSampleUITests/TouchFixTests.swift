@@ -2,7 +2,8 @@ import XCTest
 
 /// The touch fixes lab (route touchFixLab, examples/sample/src/TouchFixLab.tsx): a control inside a Pressable takes
 /// its own tap (A53, the innermost wins), a disabled one leaves it to the Pressable around it, and a long press inside a
-/// Scroll is timed from the finger. Each action writes "status: ..." into fx-status.
+/// Scroll is timed from the finger, and a Pressable drawn over a control (a dim) keeps the tap. Each action writes
+/// "status: ..." into fx-status and adds it to fx-log.
 final class TouchFixTests: ZnUITestCase {
     override func setUp() {
         super.setUp()
@@ -11,6 +12,13 @@ final class TouchFixTests: ZnUITestCase {
 
     private func status(_ s: String, file: StaticString = #filePath, line: UInt = #line) {
         waitLabel(id("fx-status"), "status: \(s)", file: file, line: line)
+    }
+
+    /// fx-log: every event so far, in order (the lab keeps the last 8). Read after a short wait, so an event that came
+    /// with the one a test waited for (the row pressed as well as the Switch turned) is seen too.
+    private func log(_ events: [String], file: StaticString = #filePath, line: UInt = #line) {
+        RunLoop.current.run(until: Date().addingTimeInterval(0.6))
+        waitLabel(id("fx-log"), "log: " + events.joined(separator: ", "), file: file, line: line)
     }
 
     private func at(_ e: XCUIElement, _ x: CGFloat, _ y: CGFloat) -> XCUICoordinate {
@@ -34,6 +42,7 @@ final class TouchFixTests: ZnUITestCase {
         status("check row")
         XCTAssertEqual(sw.value as? String, "1")
         XCTAssertEqual(check.value as? String, "1")
+        log(["switch on", "check on", "switch row", "check row"])
     }
 
     func testSwitchInARailInsideACard() {
@@ -45,6 +54,7 @@ final class TouchFixTests: ZnUITestCase {
         at(id("fx-rail-card"), 0.7, 0.72).tap()
         status("rail card")
         XCTAssertEqual(sw.value as? String, "1")
+        log(["rail switch on", "rail card"])
     }
 
     func testDisabledInsideTakesNoTap() {
@@ -58,6 +68,35 @@ final class TouchFixTests: ZnUITestCase {
         let apply = reveal(id("fx-disabled-button"))
         at(apply, 0.5, 0.5).tap()
         status("card")
+        log(["disabled switch row", "card"])
+    }
+
+    func testDimOverASwitchAndAFieldTakesTheTap() {
+        // A tap-outside dim drawn over a Switch row and a field: the dim takes the tap (as Android, the topmost takes
+        // it). The Switch's and the field's boxes inside the dim's area used to win by size: the dim closed nothing.
+        let dim = reveal(id("fx-dim"))
+        let sw = id("fx-under-switch")
+        XCTAssertEqual(sw.value as? String, "0")
+        let swAt = sw.frame, dimAt = dim.frame
+        dim.coordinate(withNormalizedOffset: CGVector(dx: (swAt.midX - dimAt.minX) / dimAt.width, dy: (swAt.midY - dimAt.minY) / dimAt.height)).tap()
+        status("dim")
+        XCTAssertEqual(sw.value as? String, "0", "the Switch under the dim turned")
+        let field = id("fx-under-field")
+        let fieldAt = field.frame
+        dim.coordinate(withNormalizedOffset: CGVector(dx: (fieldAt.midX - dimAt.minX) / dimAt.width, dy: (fieldAt.midY - dimAt.minY) / dimAt.height)).tap()
+        log(["dim", "dim"])
+        XCTAssertFalse(app.keyboards.firstMatch.exists, "the field under the dim got focus")
+    }
+
+    func testSwitchDrawnOverACardTakesItsTap() {
+        // A Switch drawn after (over) a tappable card, not inside it: the Switch takes its tap and the card doesn't fire.
+        let sw = reveal(id("fx-over-switch"))
+        sw.tap()
+        status("over switch on")
+        waitValue(sw, "1")
+        at(id("fx-over-card"), 0.2, 0.5).tap()
+        status("over card")
+        log(["over switch on", "over card"])
     }
 
     func testLongPressInScrollFromTheFinger() {
