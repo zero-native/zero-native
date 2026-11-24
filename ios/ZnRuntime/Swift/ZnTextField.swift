@@ -707,10 +707,12 @@ struct ZnUIKitTextView: UIViewRepresentable {
         placeholder.numberOfLines = 0
         placeholder.translatesAutoresizingMaskIntoConstraints = false
         v.addSubview(placeholder)
+        // To the text view's frame, not its content: an empty one's content is 0 wide, and in a right-to-left layout
+        // its leading edge is the content's right edge, so the placeholder drew left of the field (2026-11-24).
         NSLayoutConstraint.activate([
-            placeholder.topAnchor.constraint(equalTo: v.topAnchor),
-            placeholder.leadingAnchor.constraint(equalTo: v.leadingAnchor),
-            placeholder.widthAnchor.constraint(equalTo: v.widthAnchor),
+            placeholder.topAnchor.constraint(equalTo: v.frameLayoutGuide.topAnchor),
+            placeholder.leadingAnchor.constraint(equalTo: v.frameLayoutGuide.leadingAnchor),
+            placeholder.widthAnchor.constraint(equalTo: v.frameLayoutGuide.widthAnchor),
         ])
         context.coordinator.placeholder = placeholder
         ZnFieldFocus.register(v, inst, s.index)
