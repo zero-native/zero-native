@@ -34,8 +34,9 @@ Pavan's goal (2026-11-09): the ZeroBill app on iPhone, checked the way it was ch
 3. **Every Android-only thing has a written iOS answer**: built, "unavailable", or "not needed" with why.
 
 Where it stands: Phase 1 (the checkout path in zn) is **done on the simulator**. Phase 2 (ZeroBill's own iOS app) is
-**done**: ZeroBill's iOS app is signed, built for the App Store and on it (1.6.2, ZB 1e6126c to 2e94a8d, 2026-11-10 to
-11-19), with its own plugins (Upi, GoogleSignIn) on iOS (§10). On Pavan's iPhone: layout looks, real FCM pushes (i.18),
+**done**: ZeroBill's iOS app is signed and built for the App Store: builds 1.6.2 (1)–(5) uploaded (ZB 1e6126c to
+2e94a8d, 2026-11-10 to 11-16; App Review rejected one on 2026-11-16, `docs/milestones.md`; the review state now: Pavan
+to confirm), with its own plugins (Upi, GoogleSignIn) on iOS (§10). On Pavan's iPhone: layout looks, real FCM pushes (i.18),
 cold start and App Store size (2026-11-19), the polish round's checks (2026-11-24); the device checks still open are
 in §12. The gap list of `docs/guides/platform-differences.md` §3 was closed on the simulator in rounds 1–5 and the
 polish round (2026-11-21 to 11-24): §5–9 say what each piece does and what is left, and the guide lists what stays
@@ -136,7 +137,7 @@ Checklist checked against the code; registry 24 read; LayoutLab 67 / 84.
 | 1e | A vertical Scroll with no height and no flex hugs its content up to its maxHeight (ZeroBill's checkout offers sheet); LayoutLab 47 | **done** | 9afd9ff |
 | — | Fixes from Pavan's look: Tabs lab hint, border line over the Scan FAB | **done** | b0613b4 |
 
-### Phase 2: the ZeroBill iOS app [ZB] — **done** (2026-11-09 to 11-19; on the App Store as 1.6.2)
+### Phase 2: the ZeroBill iOS app [ZB] — **done** (2026-11-09 to 11-19; App Store builds 1.6.2 (1)–(5) uploaded 2026-11-10 to 11-16, review state: Pavan to confirm)
 Runs in `my-app` (its own session). Details in §10.
 
 | # | Piece | Status |
@@ -428,7 +429,7 @@ Each plugin has a Kotlin `*RulesTest.kt`. On iOS the plugins' plain rules run as
 ## 10. ZeroBill on iOS
 
 Repo `my-app` (`~/apps/my-app`, remote
-`my-app`), well tested on Android, on the App Store for iOS (1.6.2). Its own plugins: `upi`, `google-signin`,
+`my-app`), well tested on Android; for iOS, App Store builds 1.6.2 (1)–(5) were uploaded (2026-11-10 to 11-16; review state: Pavan to confirm). Its own plugins: `upi`, `google-signin`,
 `truecaller`, `in-app-update`, `install-referrer`, `legacy-data`. ZeroBill's code uses none of registry 23's new
 parts and none of motion (grep 2026-11-09). Its bundle (serial 9, built 2026-11-24) needs
 registry 23 and host API 9, and doesn't require `Motion`: it opens the Swift viewer (`imageviewer.full`) through
@@ -448,7 +449,7 @@ From its `zn-bundle.json` (`requires.modules` and `requires.os`, serial 9, 2026-
 | ZeroBill's own (6), Phase 2 | Upi and GoogleSignIn (done), Truecaller / InstallReferrer (answer no), InAppUpdate (no for Play's flow; opens the App Store), LegacyData (reads nothing) |
 
 ### The pilot flow and its iOS state
-ZeroBill's side was built in Phase 2 and ships in the App Store builds; the "device" checks below are Pavan's (§12).
+ZeroBill's side was built in Phase 2 and is in the App Store builds; the "device" checks below are Pavan's (§12).
 
 | Step | zn side | ZeroBill side |
 |---|---|---|
@@ -473,7 +474,7 @@ ZeroBill's side was built in Phase 2 and ships in the App Store builds; the "dev
 | `tools/fetch-hermes-apple.ts`, `fetch-lottie-apple.ts`, `fetch-firebase-apple.ts` | done | |
 | `tools/fetch-test-server.ts` (the simulator reaches localhost) | done; `ZN_TEST_WS_TRACE=1` logs each WebSocket upgrade and open (2026-11-24: the WebSocket lab's 80 sockets now go to 127.0.0.1, since on the simulator each URLSession connection looks localhost up by itself and 80 lookups queued past the case's 8 s now and then) | |
 | Layout conformance screen (`layoutLab`) | done | |
-| UI tests (XCUITest, `ios/SamplePackage/ZnSampleUITests`, `bun run ios:ui-test [--device <sim>] [--only Class/test] [--dump <route>]`) | done (simulator, 2026-11-24): 25 tests by testID on ComponentsScreen, the Dev hub, A11yLab, RnPropsLab, InputScreen and Dynamic Type: switches, checkboxes, progress buttons, toasts, a sheet (open, grow, toast inside, drag closed), roles, labels, disabled, long press, hitSlop, typing in fields. 5.5 min cold (build, boot, run) on the iOS 26.3 simulator, two green cold runs in a row. They found and fixed: a toast out of the accessibility tree, a tappable Text read as two elements. A Switch inside a Pressable still gives the tap to the row (A53, open; the test checks today's behaviour). Known: a burst of keys into a field that JS reformats can lose one (InputTests/testBurst, an expected failure). Since then (rounds 5 and polish) the image viewer, touch lab, text polish, navigation race, edge swipe and toast keyboard classes: 58 test methods in 12 classes on 2026-11-24. In CI every night since 2026-11-24 (`.github/workflows/ios-ui-tests-nightly.yml`: macOS runner, the first iPhone simulator on the newest iOS, ci.yml's Hermes and package caches, the log and .xcresult kept a week when it fails); not on pull requests until it has been green for a while. | M |
+| UI tests (XCUITest, `ios/SamplePackage/ZnSampleUITests`, `bun run ios:ui-test [--device <sim>] [--only Class/test] [--dump <route>]`) | done (simulator, 2026-11-24): 25 tests by testID on ComponentsScreen, the Dev hub, A11yLab, RnPropsLab, InputScreen and Dynamic Type: switches, checkboxes, progress buttons, toasts, a sheet (open, grow, toast inside, drag closed), roles, labels, disabled, long press, hitSlop, typing in fields. 5.5 min cold (build, boot, run) on the iOS 26.3 simulator, two green cold runs in a row. They found and fixed: a toast out of the accessibility tree, a tappable Text read as two elements. A Switch inside a Pressable still gives the tap to the row (A53, open; the test checks today's behaviour). Known: a burst of keys into a field that JS reformats can lose one (InputTests/testBurst, an expected failure). Since then (rounds 5 and polish) the image viewer, touch lab, text polish, navigation race, edge swipe and toast keyboard classes: 58 test methods in 12 classes on 2026-11-24. A nightly CI run added on 2026-11-24, its first run on GitHub still pending (`.github/workflows/ios-ui-tests-nightly.yml`: macOS runner, the first iPhone simulator on the newest iOS, ci.yml's Hermes and package caches, a failed test run again once and the job fails only if it fails twice, the log and .xcresult kept a week when it fails or times out); not on pull requests until it has been green for a while. | M |
 | Unit tests (readers, routes, animation, OTA, plugin rules) | done as Mac suites instead of an XCTest target (2026-11-21 to 11-24): `bun run tools/ios-unit-test.ts`, 25 suites, run by `bun run test` and CI (`ios/tests/README.md`) | L |
 | Golden `.zn.ui` / batch files read by both test suites (i.0) | missing | M |
 | Startup / frame / tabs measurements (`measure-*.ps1`, `measure-tabs.ts`) | partial: cold start on an iPhone 11 measured by hand (2026-11-19, `docs/milestones.md`); no Mac script yet | M × 3 |
@@ -488,12 +489,21 @@ ZeroBill's side was built in Phase 2 and ships in the App Store builds; the "dev
 
 ## 12. Checked on the simulator, not on a device
 
-Everything above marked done was checked on the simulator only. Waiting for a real iPhone:
+Everything above marked done was checked on the simulator, unless its row names Pavan's iPhone. Checked on Pavan's
+iPhone 11 so far: layout looks, real FCM pushes (i.18), cold start and App Store size
+(2026-11-19), the polish round's checks (2026-11-24). ZeroBill's App Store builds 1.6.2 (1)–(5) may already have covered
+UPI, the camera and links on the phone: Pavan to tick those. Waiting for a real iPhone:
 - UPI apps (opening by scheme, coming back), universal links (associated domains).
 - Camera: scanner reads, torch, zoom, pinch; document scanner pages.
-- SMS code fill (`.oneTimeCode`), push and notifications.
-- Back swipe by hand (the simulator tool can't start edge swipes), double tap and pinch in the image viewer.
-- Press ripple timing side by side with Android; frame timing and startup numbers.
+- SMS code fill (`.oneTimeCode`).
+- A real background wake and background launch (a data-only push, a BGTask): only simulated on the simulator.
+- `zn dev --lan` on a phone (Bonjour, Local Network prompt; the zn dev row's "Check on a phone").
+- Secure screens: a real screenshot, screen recording and AirPlay mirror show the screen blank (§14.5).
+- One real OTA update (download, apply, rollback) on an iPhone (`docs/ota-test-matrix.md` "Still to do").
+- The App Store update sheet (app-updates) with a real `appStoreId`.
+- Back swipe by hand (UI test EdgeSwipeTests does edge swipes on the simulator; the feel on a phone is not checked),
+  double tap and pinch in the image viewer.
+- Press ripple timing side by side with Android; frame timing; the motion cost at 120 Hz (the motion-ota-gate row).
 - Location with real GPS; battery and carrier values in device-info.
 - A launch screen with an image (the sample's is empty, white).
 - RTL layout, Svg autoMirror, VoiceOver.
@@ -529,7 +539,7 @@ the table below keeps only the first ones). Next number: **A109**.
 1. ~~Google sign-in on iOS~~: decided 2026-11-09, build it now; built in ZeroBill's plugin without the SDK (OAuth with
    PKCE, ZB 859c3cb).
 2. **Apple sign-in**: likely not required (login is phone OTP; Google only for the review card). Pavan to confirm.
-3. ~~TestFlight~~: used for ZeroBill's 1.6.2 App Store builds (2026-11-10 to 11-19).
+3. ~~TestFlight~~: used for ZeroBill's 1.6.2 App Store builds (2026-11-10 to 11-16).
 4. **Push payloads**: alert payloads for anything the user must see (iOS silent pushes are not guaranteed). Server
    decision, before Phase 3 ends.
 5. ~~Secure screens~~: built 2026-11-21 (ZnSecure.swift): captures show the screen blank, the app switcher a plain cover; a phone check is still open.
