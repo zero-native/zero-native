@@ -440,7 +440,7 @@ struct ZnSizeFrame: ViewModifier {
 /// widthIn / heightIn: a max only caps the size and a min only raises it. SwiftUI's own `.frame(maxWidth: 190)` grows a
 /// view to 190 when it is offered more, so a Text with maxWidth took 190 points whatever it said (ZeroBill's store pill
 /// on Offer Details squeezed the price pill beside it to three lines).
-/// - A fill (stretch, flex) takes what it is offered, kept between min and max.
+/// - A fill (stretch, flex) takes what it is offered, kept below max (a min raises it only up to the offer).
 /// - Otherwise the child is offered at most max and keeps its own size, kept between min and max.
 /// A child smaller than its box (a min above its size) is placed by the node's content alignment.
 struct ZnMinMaxLayout: Layout {
@@ -459,10 +459,12 @@ struct ZnMinMaxLayout: Layout {
 
     private static func finite(_ v: CGFloat?) -> CGFloat? { v.flatMap { $0.isFinite ? $0 : nil } }
 
-    /// What the child is offered on one axis: the fill's size, or the offer capped at max.
+    /// What the child is offered on one axis: the fill's size, or the offer capped at max. A fill's min stays inside
+    /// what it is offered, as Android's znSizeInConstraints: a `flex: 1, minHeight: 320` body on a short screen keeps
+    /// its share instead of drawing over the footer.
     private static func offer(_ p: CGFloat?, fill: Bool, lo: CGFloat?, hi: CGFloat?) -> CGFloat? {
         guard let p = finite(p) else { return hi }
-        return fill ? clamp(p, lo, hi) : min(p, hi ?? p)
+        return fill ? min(clamp(p, lo, hi), p) : min(p, hi ?? p)
     }
 
     private func axes(_ proposal: ProposedViewSize, _ child: LayoutSubview) -> CGSize {

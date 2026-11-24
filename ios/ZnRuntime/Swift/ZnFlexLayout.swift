@@ -138,12 +138,15 @@ struct ZnFlexLayout: Layout {
         let m = measure(ProposedViewSize(bounds.size), subviews)
         let mainSize = main(bounds.size), crossSize = cross(bounds.size)
         let content = m.children.reduce(0) { $0 + main($1) } + gap * CGFloat(max(subviews.count - 1, 0))
-        let free = max(0, mainSize - content)
+        // center and flex-end use the signed space, so content bigger than the box hangs over both ends (centred) or
+        // the start, as Android's ZnJustifyWithGap; the space-* ones never squeeze below the gap.
+        let left = mainSize - content
+        let free = max(0, left)
         let n = CGFloat(subviews.count)
         var lead: CGFloat = 0, between: CGFloat = gap
         switch justify {
-        case Registry.JustifyContent.center: lead = free / 2
-        case Registry.JustifyContent.flexEnd: lead = free
+        case Registry.JustifyContent.center: lead = left / 2
+        case Registry.JustifyContent.flexEnd: lead = left
         case Registry.JustifyContent.spaceBetween: if n > 1 { between += free / (n - 1) }
         case Registry.JustifyContent.spaceAround: if n > 0 { lead = free / n / 2; between += free / n }
         case Registry.JustifyContent.spaceEvenly: if n > 0 { lead = free / (n + 1); between += free / (n + 1) }
