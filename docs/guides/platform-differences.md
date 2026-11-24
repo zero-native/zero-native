@@ -17,6 +17,11 @@
 | **Screenshot blocking (`secure: true`)** | `FLAG_SECURE` hides screenshots & recents | Screenshots, screen recording and mirroring show the screen blank (a secure text field's canvas); the app switcher shows a plain cover. iOS can't refuse a screenshot as `FLAG_SECURE` does; Alerts aren't covered |
 | **Minimum OS** | Android 7.0 (API 24) | iOS 17.0 |
 
+**Same on both platforms, different from React Native:** in a `Row`, children stretch to the Row's height only when
+the Row has a fixed height and `alignItems` or `alignSelf` is `"stretch"`; an unset `alignItems` places them at the top
+(`flex-start`), because stretching to an unknown height needs a slow intrinsic measurement. Write `alignItems:
+"stretch"` and a height for React Native's look (see [Styling and layout](styling-and-layout.md)).
+
 ---
 
 ## 2. Current Feature Parity Status (Pre-1.0)
