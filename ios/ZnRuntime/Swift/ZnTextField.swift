@@ -64,15 +64,15 @@ struct ZnFieldExtras: Equatable {
     /// Line spacing added to the font's own line height (what lineHeight is more, as a Text's), multiline only.
     var spacing: CGFloat = 0
     /// textAlign, multiline only (a UITextField has its own textAlignment).
-    var align = NSTextAlignment.left
+    var align = NSTextAlignment.natural
 
-    @MainActor init(_ s: ZnNodeSpec, _ look: ZnFieldLook, font: UIFont, k: CGFloat, multiline: Bool) {
+    @MainActor init(_ s: ZnNodeSpec, _ look: ZnFieldLook, font: UIFont, k: CGFloat, multiline: Bool, rtl: Bool) {
         kern = look.letterSpacing.map { $0 * k }
         line = s.decorationLine
         lineStyle = s.decorationStyle
         if multiline {
             spacing = look.lineHeight.map { max($0 * k - font.lineHeight, 0) } ?? 0
-            align = s.textAlign == Registry.TextAlign.center ? .center : s.textAlign == Registry.TextAlign.end ? .right : .left
+            align = znFieldAlign(s.textAlign, rtl: rtl)
         }
     }
 
@@ -97,6 +97,17 @@ struct ZnFieldExtras: Equatable {
         p.alignment = align
         p.lineSpacing = spacing
         return p
+    }
+}
+
+/// textAlign as UIKit's: start and end follow the layout direction, as Compose's TextAlign.Start / End (ZnTemplate.kt)
+/// and a Text's .leading / .trailing; start (or not written) is left in a left-to-right layout, right in a right-to-left
+/// one.
+func znFieldAlign(_ textAlign: Int, rtl: Bool) -> NSTextAlignment {
+    switch textAlign {
+    case Registry.TextAlign.center: return .center
+    case Registry.TextAlign.end: return rtl ? .left : .right
+    default: return rtl ? .right : .left
     }
 }
 
@@ -208,17 +219,22 @@ enum ZnFieldFocus {
     }
 
     /// returnKeyType "next": focuses the field after [field] on its screen, as Compose's default for ImeAction.Next
-    /// (focus moves on and the keyboard stays up). After means in reading order: the next line down, or further right
-    /// on the same line. Fields that can't take focus are passed over: not editable, under pointerEvents "none", on a
-    /// hidden tab, or not in the window (a List's row out of view, not composed on Android either). False when there is
-    /// none: the keyboard then closes, as before.
-    static func focusNext(after field: UIView) -> Bool {
+    /// (focus moves on and the keyboard stays up). After means in reading order: the next line down, or further on
+    /// (right, left in a right-to-left layout) on the same line. Fields iOS can't focus are passed over: not editable,
+    /// under pointerEvents "none", on a hidden tab (Compose can still focus a readOnly or untouchable field: iOS only,
+    /// as a read-only one-line field takes no focus here, decision 1). A List row's field goes on to its List's next
+    /// rows first, also those past its edge (nextRow). False when there is none: the keyboard then closes, as before.
+    static func focusNext(after field: UIView) -> Bool { focusNext(after: field, rowsOn: 0) }
+
+    private static func focusNext(after field: UIView, rowsOn: Int) -> Bool {
         guard let window = field.window else { return false }
         let screen = znNearestController(field)
         let me = field.convert(field.bounds, to: window)
-        // a before b: a higher line, or the same line (their middles within half the smaller height) and further left.
+        let rtl = field.effectiveUserInterfaceLayoutDirection == .rightToLeft
+        // a before b: a higher line, or the same line (their middles within half the smaller height) and further on.
         func before(_ a: CGRect, _ b: CGRect) -> Bool {
-            abs(a.midY - b.midY) < min(a.height, b.height) / 2 ? a.minX < b.minX : a.midY < b.midY
+            guard abs(a.midY - b.midY) < min(a.height, b.height) / 2 else { return a.midY < b.midY }
+            return rtl ? a.maxX > b.maxX : a.minX < b.minX
         }
         let after = views.compactMap { (key, w) -> (UIView, CGRect)? in
             guard let v = w.view, v !== field, v.window === window, !v.isHidden, v.isUserInteractionEnabled,
@@ -228,11 +244,58 @@ enum ZnFieldFocus {
             return before(me, f) ? (v, f) : nil
         }.sorted { before($0.1, $1.1) }
         // A field that says no (editable={false} refuses in textFieldShouldBeginEditing): the one after it.
-        for (v, _) in after where v.becomeFirstResponder() {
-            print("zn t=\(ZnDebug.ms()) field: next → the field at y \(Int(v.convert(v.bounds, to: window).minY))")
-            return true
+        func take(_ list: [(UIView, CGRect)]) -> Bool {
+            for (v, _) in list where v.becomeFirstResponder() {
+                print("zn t=\(ZnDebug.ms()) field: next → the field at y \(Int(v.convert(v.bounds, to: window).minY))")
+                return true
+            }
+            return false
         }
-        return false
+        // In a List, its own rows come first, also those not made yet (nextRow), before a field below the List.
+        if let row = listRow(of: field) {
+            if take(after.filter { $0.0.isDescendant(of: row.list) }) { return true }
+            if nextRow(after: field, in: row, rowsOn: rowsOn) { return true }
+        }
+        return take(after)
+    }
+
+    /// The List (UIKit variant) [field] is in, and the index path of its row there.
+    private static func listRow(of field: UIView) -> (list: ZnListCollectionView, at: IndexPath)? {
+        var cell: UICollectionViewCell?
+        var v = field.superview
+        while let sv = v, !(sv is ZnListCollectionView) {
+            if let c = sv as? UICollectionViewCell { cell = c }
+            v = sv.superview
+        }
+        guard let list = v as? ZnListCollectionView, let cell, let at = list.indexPath(for: cell) else { return nil }
+        return (list, at)
+    }
+
+    /// A field in a List row with no field after it among the rows that show: the rows below aren't made yet (a
+    /// UICollectionView makes only the rows that show). Compose's LazyColumn lays out the next item for a focus search
+    /// and moves focus into it, so this shows the next row (the least scroll) and looks again, a row at a time, up to 5
+    /// rows on; then a field after the List; none: the keyboard closes. The keyboard stays up meanwhile. False: no row
+    /// left to show.
+    private static func nextRow(after field: UIView, in row: (list: ZnListCollectionView, at: IndexPath),
+                                rowsOn: Int) -> Bool {
+        guard rowsOn < 5 else { return false }
+        let cv = row.list
+        // Every item in order (header, rows, footer: one section each); an inverted list's next is the one before.
+        let all = (0..<cv.numberOfSections).flatMap { sec in
+            (0..<cv.numberOfItems(inSection: sec)).map { IndexPath(item: $0, section: sec) }
+        }
+        let step = cv.transform.d < 0 ? -1 : 1
+        guard let i = all.firstIndex(of: row.at), all.indices.contains(i + step * (rowsOn + 1)) else { return false }
+        let next = all[i + step * (rowsOn + 1)]
+        let horizontal = cv.contentSize.width > cv.bounds.width + 0.5 && cv.contentSize.height <= cv.bounds.height + 0.5
+        cv.scrollToItem(at: next, at: horizontal ? .right : (step < 0 ? .top : .bottom), animated: false)
+        cv.layoutIfNeeded()
+        print("zn t=\(ZnDebug.ms()) field: next → showing list row \(next.item) (section \(next.section)) to look there")
+        DispatchQueue.main.async {
+            guard field.isFirstResponder else { return }  // the user moved on meanwhile
+            if !focusNext(after: field, rowsOn: rowsOn + 1) { field.resignFirstResponder() }
+        }
+        return true
     }
 
     /// After this run of the main loop: scrolls the focused field's box into view, animated. On focus (another field
@@ -411,7 +474,8 @@ struct ZnUIKitField: UIViewRepresentable {
         if f.font != font { f.font = font; f.invalidateIntrinsicContentSize() }
         znFieldTouch(f, off: context.environment.znTouchOff)
         znApplyA11y(f, s, label: look.label)
-        let extras = ZnFieldExtras(s, look, font: font, k: s.textScale(context.environment.dynamicTypeSize), multiline: false)
+        let extras = ZnFieldExtras(s, look, font: font, k: s.textScale(context.environment.dynamicTypeSize), multiline: false,
+                                   rtl: context.environment.layoutDirection == .rightToLeft)
         // Only on a change: setting it again relays the field out (an empty placeholder is nil). In placeholderColor
         // and the field's font, letterSpacing and decoration, as Android draws it with the field's text style.
         let placeholder = look.placeholder.isEmpty ? nil : look.placeholder
@@ -437,7 +501,8 @@ struct ZnUIKitField: UIViewRepresentable {
         let hint = znContentType(s.autoComplete)
         if f.textContentType != hint { f.textContentType = hint }
         f.returnKeyType = znReturnKey(s.returnKeyType) ?? .done
-        f.textAlignment = s.textAlign == Registry.TextAlign.center ? .center : s.textAlign == Registry.TextAlign.end ? .right : .left
+        let align = znFieldAlign(s.textAlign, rtl: context.environment.layoutDirection == .rightToLeft)
+        if f.textAlignment != align { f.textAlignment = align }
 
         // Only a new value from JS counts: SwiftUI calls this for many reasons, and re-applying JS's last value would
         // undo what the user typed before JS answered (found 2026-11-08: typing showed nothing).
@@ -694,7 +759,8 @@ struct ZnUIKitTextView: UIViewRepresentable {
         if v.textContentType != hint { v.textContentType = hint }
         v.returnKeyType = znReturnKey(s.returnKeyType) ?? .default
         // letterSpacing, decoration, lineHeight and textAlign, on the text and the placeholder (as Android's style).
-        let extras = ZnFieldExtras(s, look, font: font, k: s.textScale(context.environment.dynamicTypeSize), multiline: true)
+        let extras = ZnFieldExtras(s, look, font: font, k: s.textScale(context.environment.dynamicTypeSize), multiline: true,
+                                   rtl: context.environment.layoutDirection == .rightToLeft)
         let pColor = znPlaceholderColor(s)
         if c.placeholderLook?.0 != look.placeholder || c.placeholderLook?.1 != font || c.placeholderLook?.2 != pColor
             || c.placeholderLook?.3 != extras {

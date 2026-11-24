@@ -23,6 +23,15 @@ check("full width", znCarouselPageWidth(width: 300, padding: 20, itemWidth: nil,
 check("tiny percent is 1", znCarouselPageWidth(width: 100, padding: 0, itemWidth: nil, percent: 0.1), 1)
 check("no room", znCarouselPageWidth(width: 10, padding: 30, itemWidth: nil, percent: nil), 0)
 
+// numberOfLines: 0 or less is no limit (React Native's 0), as not written.
+check("lines 3", znTextLineLimit(3), 3)
+check("lines 1", znTextLineLimit(1), 1)
+check("lines 0 is no limit", znTextLineLimit(0), nil)
+check("lines -1 is no limit", znTextLineLimit(-1), nil)
+check("lines not written", znTextLineLimit(nil), nil)
+// Auto-fit with numberOfLines 0: no limit, so no shrinking.
+check("auto-fit, lines 0", znTextMinScale(autoFit: true, maxLines: znTextLineLimit(0), minimumFontScale: 0.3), 1)
+
 // Auto-fit: only with numberOfLines; minimumFontScale 0.5 when not written, within 0.01...1.
 check("off", znTextMinScale(autoFit: false, maxLines: 1, minimumFontScale: 0.3), 1)
 check("no numberOfLines", znTextMinScale(autoFit: true, maxLines: nil, minimumFontScale: 0.3), 1)

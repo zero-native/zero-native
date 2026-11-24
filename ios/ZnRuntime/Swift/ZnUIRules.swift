@@ -1,5 +1,6 @@
 // Small rules of the UI props that need only Foundation, so ios/tests/uirules checks them on the Mac against
-// Android's: a Carousel's page width, a Text's auto-fit scale, a TextField's capitalization and autocorrect.
+// Android's: a Carousel's page width, a Text's line limit and auto-fit scale, a TextField's capitalization and
+// autocorrect.
 import Foundation
 
 /// A Carousel page's width (ZnRenderer.kt ZnCarousel pageSize): a percent of the width inside the padding (the gap
@@ -8,6 +9,12 @@ func znCarouselPageWidth(width: CGFloat, padding: CGFloat, itemWidth: CGFloat?, 
     let avail = max(width - padding, 0)
     if let percent { return max(1, (avail * percent / 100).rounded()) }
     return itemWidth ?? avail
+}
+
+/// numberOfLines as a line limit: 0 or less is no limit (React Native's meaning of 0), nil when not written.
+func znTextLineLimit(_ n: Int?) -> Int? {
+    guard let n, n > 0 else { return nil }
+    return n
 }
 
 /// The smallest scale an auto-fit Text may shrink to (ZnRenderer.kt: minimumFontScale ?: 0.5, within 0.01...1), or 1
