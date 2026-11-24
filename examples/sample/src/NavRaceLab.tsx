@@ -6,8 +6,10 @@
 //   back-back: two screens up, then back twice.
 // Each case logs "nav-race <case> <ms> ok" or "... FAIL <why>", and the end "nav-race done <ok>/<all>" (the UI test
 // NavRaceTests reads the "nav-race-result" text).
-import { Column, Pressable, Row, Text } from "@zeronative/ui"
-import { nav, signal } from "@zeronative/core"
+// Toast and keyboard (at the top, so the buttons stay above the keyboard): a toast shown before or while the keyboard
+// moves rides up and down with it (ToastKeyboardTests).
+import { Column, Pressable, Row, Text, TextField } from "@zeronative/ui"
+import { Keyboard, nav, signal, toast } from "@zeronative/core"
 import { c } from "./tokens"
 
 const DELAYS = [0, 50, 100, 200, 300, 400, 500, 600, 700, 800, 900]
@@ -115,6 +117,14 @@ export function NavRaceLabScreen() {
       <Row style={{ gap: 8, flexWrap: "wrap" }}>
         <NrButton label="Run race" onPress={() => void run()} />
         <NrButton label="Push target" onPress={() => nav.push("navRaceTarget", { step: 1 })} />
+      </Row>
+      <TextField
+        placeholder="A field for the keyboard"
+        style={{ height: 44, paddingHorizontal: 12, borderRadius: 8, backgroundColor: c.white, borderWidth: 1, borderColor: c.border }}
+      />
+      <Row style={{ gap: 8, flexWrap: "wrap" }}>
+        <NrButton label="Toast" onPress={() => toast("Saved", { duration: "long" })} />
+        <NrButton label="Hide keyboard" onPress={() => void Keyboard.dismiss()} />
       </Row>
       <Text testID="nav-race-result" fontSize={16} fontWeight={700} color={c.ink}>
         {`result: ${result()}`}

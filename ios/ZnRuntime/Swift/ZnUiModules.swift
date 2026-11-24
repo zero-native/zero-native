@@ -121,8 +121,15 @@ final class ZnVibration: ZnModuleBase, @unchecked Sendable {
 
 /// zero-native's own toast (iOS has none): a dark pill near the bottom, above the home indicator and the keyboard,
 /// over every screen (it stays through navigation). "short" 2 s, "long" 3.5 s; a new toast replaces the one showing.
+/// It rides up and down with the keyboard while it shows (Android pads it by navigationBars ∪ ime on every frame);
+/// at most two lines, ending in "…", and an empty message shows nothing (as ZnToast.kt).
 final class ZnToast: ZnModuleBase, @unchecked Sendable {
     private weak var showing: UIView?
+    /// The showing pill's bottom constraint, moved with the keyboard.
+    private weak var bottom: NSLayoutConstraint?
+    /// The window the pill is in, for its safe area as the keyboard moves.
+    private weak var window: UIWindow?
+    private var keyboardWatch: NSObjectProtocol?
 
     init() {
         super.init("Toast", version: 1)
@@ -134,26 +141,61 @@ final class ZnToast: ZnModuleBase, @unchecked Sendable {
         }
     }
 
+    deinit { if let keyboardWatch { NotificationCenter.default.removeObserver(keyboardWatch) } }
+
+    /// The gap under the pill: 24 pt above the home indicator, or above the keyboard while it covers more.
+    @MainActor private static func gap(_ window: UIWindow, keyboard: CGFloat) -> CGFloat {
+        max(window.safeAreaInsets.bottom, keyboard) + 24
+    }
+
+    /// The keyboard starts to move: the pill moves with it, in the keyboard's own time and curve.
+    @MainActor private func keyboardMoves(_ n: Notification) {
+        guard let bottom, let window, let pill = showing else { return }
+        let end = (n.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue ?? .zero
+        let duration = (n.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
+        let curve = (n.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt) ?? 7
+        let gap = Self.gap(window, keyboard: ZnMotionEnv.keyboardCovers(end))
+        guard bottom.constant != -gap else { return }
+        bottom.constant = -gap
+        UIView.animate(withDuration: duration, delay: 0, options: UIView.AnimationOptions(rawValue: curve << 16)) {
+            pill.superview?.layoutIfNeeded()
+        }
+    }
+
     @MainActor private func show(_ message: String, seconds: Double) {
+        guard !message.isEmpty else { return }
         guard let window = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene })
             .flatMap(\.windows).first(where: \.isKeyWindow) else { return print("zn toast: no key window") }
         showing?.removeFromSuperview()
+        if keyboardWatch == nil {
+            keyboardWatch = NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillChangeFrameNotification,
+                                                                   object: nil, queue: .main) { [weak self] n in
+                MainActor.assumeIsolated { self?.keyboardMoves(n) }
+            }
+        }
         let label = UILabel()
         label.text = message
-        label.numberOfLines = 0
+        label.numberOfLines = 2
+        label.lineBreakMode = .byTruncatingTail
         label.textColor = .white
         label.font = .systemFont(ofSize: 14, weight: .medium)
         label.textAlignment = .center
         let pill = UIView()
         pill.backgroundColor = UIColor(white: 0.13, alpha: 0.92)
-        pill.layer.cornerRadius = 18
+        pill.layer.cornerRadius = 20
+        // Android's shadow(4.dp): a soft one under the pill.
+        pill.layer.shadowColor = UIColor.black.cgColor
+        pill.layer.shadowOpacity = 0.2
+        pill.layer.shadowRadius = 4
+        pill.layer.shadowOffset = CGSize(width: 0, height: 2)
         pill.isUserInteractionEnabled = false
         pill.translatesAutoresizingMaskIntoConstraints = false
         label.translatesAutoresizingMaskIntoConstraints = false
         pill.addSubview(label)
         // Inside the secure content while a secure screen is drawn (left out of screenshots too); else on the window.
         (ZnSecure.shared.toastParent(in: window) ?? window).addSubview(pill)
-        let bottom = max(window.safeAreaInsets.bottom, ZnSystemEvents.shared.keyboardHeight) + 24
+        let bottom = pill.bottomAnchor.constraint(equalTo: window.bottomAnchor,
+                                                  constant: -Self.gap(window, keyboard: ZnSystemEvents.shared.keyboardHeight))
         NSLayoutConstraint.activate([
             label.leadingAnchor.constraint(equalTo: pill.leadingAnchor, constant: 16),
             label.trailingAnchor.constraint(equalTo: pill.trailingAnchor, constant: -16),
@@ -161,9 +203,11 @@ final class ZnToast: ZnModuleBase, @unchecked Sendable {
             label.bottomAnchor.constraint(equalTo: pill.bottomAnchor, constant: -10),
             pill.centerXAnchor.constraint(equalTo: window.centerXAnchor),
             pill.leadingAnchor.constraint(greaterThanOrEqualTo: window.leadingAnchor, constant: 24),
-            pill.bottomAnchor.constraint(equalTo: window.bottomAnchor, constant: -bottom),
+            bottom,
         ])
         showing = pill
+        self.bottom = bottom
+        self.window = window
         pill.alpha = 0
         // The fade-out starts after the fade-in: started together, UIKit sets alpha 0 at once and the toast never shows.
         // It is started [seconds] later, not given as the animation's delay: a delayed animation sets alpha 0 at once,
