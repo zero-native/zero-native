@@ -2274,8 +2274,14 @@ export function compileModule(
         ;(props as any).onNativeEvent = eventRef(ev)
         // A name no app uses: the handler's own `p` or `e` must not be hidden by this wrapper.
         b.binds.push(`${RUNTIME}.on(${b.inst}, @@E:${ev}@@, (__znPayload) => (${handlerCode(expr!, b)})(JSON.parse(__znPayload)));`)
+      } else if (name === "testID" || name === "pointerEvents") {
+        // As on any element (A112): UI tests find the view by testID; pointerEvents "none" lets taps reach what is under.
+        if (!init) fail(a, `${name} needs a value`)
+        else if (ts.isStringLiteral(init)) setStatic(props, name, decodeEntities(init.text), a)
+        else if (expr) setProp(props, b, name, expr, a)
+        else fail(a, `unsupported value for "${name}"`)
       } else {
-        fail(a, `<NativeView> takes name, props, onEvent and style, not "${name}"`)
+        fail(a, `<NativeView> takes name, props, onEvent, style, testID and pointerEvents, not "${name}"`)
       }
     }
     if (viewName === null) fail(node, '<NativeView> needs a name, e.g. name="scanner.qr"')

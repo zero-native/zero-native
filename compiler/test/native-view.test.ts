@@ -62,7 +62,31 @@ describe("<NativeView>", () => {
     expect(templates[1].type).toBe("NativeView")
   })
 
+  test("testID and pointerEvents pass through as on any element (A112)", () => {
+    const { templates } = compile(`
+      export function F() { return <NativeView name="a.b" testID="qr" pointerEvents="none" /> }`)
+    expect((templates[0].props as any).testID).toBe("qr")
+    expect((templates[0].props as any).pointerEvents).toBe("none")
+    // Same output as a Column's.
+    const col = compile(`export function F() { return <Column testID="qr" pointerEvents="none" /> }`).templates[0]
+    expect((col.props as any).testID).toBe("qr")
+    expect((col.props as any).pointerEvents).toBe("none")
+  })
+
+  test("a pointerEvents that changes is a slot", () => {
+    const { templates, code } = compile(`
+      export function F() {
+        const off = signal(false)
+        return <NativeView name="a.b" pointerEvents={off() ? "none" : "auto"} testID={"q" + "r"} />
+      }`)
+    expect((templates[0].props as any).pointerEvents).toEqual({ $slot: "s0", default: null })
+    expect((templates[0].props as any).testID).toBe("qr")
+    expect(code).toContain(`__zn.slot(__i0, 0, () => (off() ? "none" : "auto"), 0);`)
+  })
+
   test("errors", () => {
+    expect(err(`<NativeView name="a.b" testID />`)).toContain("testID needs a value")
+    expect(err(`<NativeView name="a.b" accessibilityLabel="x" />`)).toContain("testID and pointerEvents")
     expect(err(`<NativeView />`)).toContain("needs a name")
     expect(err(`<NativeView name={n} />`)).toContain("string literal")
     expect(err(`<NativeView name="qr" />`)).toContain('must be "<plugin>.<name>"')
