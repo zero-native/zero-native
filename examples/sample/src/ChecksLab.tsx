@@ -9,7 +9,8 @@
 //      type allows testID and pointerEvents: so a wrapper.)
 //   d) Reorder in a sideways List (chips of different widths) and in an inverted List with rows of mixed heights: long
 //      press, drag, drop; each onReorder is logged ("checks-lab reorder ...") and shown in the status.
-//   e) ChecksSnapLabScreen (route checksSnapLab): a snapping Scroll under the status bar and the home indicator.
+//   e) ChecksSnapLabScreen (routes checksSnapSafeLab and checksSnapLab): a snapping Scroll with and without a safe-area
+//      inset.
 //   f) Values JS puts in fields: a multiline field JS regroups, a maxLength 4 field JS fills with 6 digits, a read-only
 //      field JS changes (what A93's fix must keep).
 import { Box, Column, List, NativeView, Pressable, Row, Scroll, Stack, Text, TextField } from "@zeronative/ui"
@@ -198,9 +199,10 @@ export function ChecksLabScreen() {
   )
 }
 
-// e) Snapping in a Scroll that reaches under the status bar and the home indicator (route checksSnapLab, safeArea
-// "none": the only screen where a snapping Scroll has system bars over it). Pages of 300 pt snap to the top; each
-// momentum end is shown with its offset, which should be a multiple of 300. Open with --route checksSnapLab.
+// e) Snapping in a Scroll with a safe-area inset. On a usual route (checksSnapSafeLab) the Scroll's UIScrollView
+// reaches under the status bar with an adjusted inset (59 pt on an iPhone 16 Pro); under safeArea "none"
+// (checksSnapLab) the inset is 0 and the content starts under the bar. Pages of 300 pt snap to the top; each momentum
+// end is shown with its offset, which should be a multiple of 300 (ZN_COUNT_BODIES=1 also logs "snap target ... inset").
 export function ChecksSnapLabScreen() {
   const status = signal("snap: ready")
   const PAGES = Array.from({ length: 12 }, (_, i) => i)
