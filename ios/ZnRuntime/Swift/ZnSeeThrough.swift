@@ -20,7 +20,7 @@
 // The see-through screen gets no shared elements (Android sets LocalZnSharedVisibility = null): a later sharedTag
 // flight must skip transparent routes.
 // - `accessibilityHidesBelow: true` on its route: VoiceOver skips the screens under it while it shows (A100). They stay
-//   drawn; their views are hidden from accessibility and the top one is modal (hideBelow). Off by default.
+//   drawn; their views are hidden from accessibility (hideBelow). Off by default.
 import SwiftUI
 import UIKit
 
@@ -106,40 +106,52 @@ final class ZnSeeThroughBox: UIViewController {
         ZnSystemBars.refreshStatusBar()
     }
 
+    /// What VoiceOver was on when screens were first hidden (hideBelow): it goes back there when they are read again.
+    private weak var focusBefore: NSObject?
+
     /// VoiceOver: the screens under the topmost see-through one whose route says `accessibilityHidesBelow` are hidden
-    /// (accessibilityElementsHidden on their views), and that one is modal, so VoiceOver keeps to it as UIKit's own
-    /// covered screens; the rest are read as before. A change moves VoiceOver to the screen now on top (screenChanged),
-    /// as a push does.
+    /// (accessibilityElementsHidden on their views); the rest are read as before, also a see-through screen opened over
+    /// that one (a dialog or toast route). Not accessibilityViewIsModal: VoiceOver would then skip the screens above it
+    /// too. A change moves VoiceOver as a push and a pop do (screenChanged): to the screen now on top, and back to what
+    /// it was on (the thumbnail that opened the viewer) once the screens below are read again. Only while this box is
+    /// the screen showing: a change under another screen moves nothing.
     private func hideBelow() {
         guard isViewLoaded else { return }
         let top = layers.lastIndex { $0.seeThrough && $0.hidesBelow }
+        let wasHiding = layers.contains { $0.holder?.accessibilityElementsHidden == true }
         var changed = false
         for (i, l) in layers.enumerated() {
             guard let h = l.holder else { continue }
             let hidden = top.map { i < $0 } ?? false
-            let modal = i == top
-            if h.accessibilityElementsHidden != hidden || h.accessibilityViewIsModal != modal { changed = true }
+            if h.accessibilityElementsHidden != hidden { changed = true }
             h.accessibilityElementsHidden = hidden
-            h.accessibilityViewIsModal = modal
         }
         guard changed else { return }
+        let hiding = top != nil
+        if hiding && !wasHiding { focusBefore = UIAccessibility.focusedElement(using: .notificationVoiceOver) as? NSObject }
+        let back = !hiding ? focusBefore : nil
+        if !hiding { focusBefore = nil }
         print("zn t=\(ZnDebug.ms()) see-through: VoiceOver \(top.map { "skips the \($0) screen\($0 == 1 ? "" : "s") under \(layers[$0].entry)" } ?? "reads every screen")")
-        UIAccessibility.post(notification: .screenChanged, argument: nil)
+        guard view.window != nil, navigationController.map({ $0.topViewController === self }) ?? true else { return }
+        UIAccessibility.post(notification: .screenChanged, argument: back)
     }
 
-    /// Takes [vc] out at once (it moves to another box).
+    /// Takes [vc] out at once (it moves to another box). Its view is read again wherever it goes.
     func drop(_ vc: UIViewController) {
         guard let i = layers.firstIndex(where: { $0.vc === vc }) else { return }
         let l = layers.remove(at: i)
         vc.willMove(toParent: nil)
         l.holder?.removeFromSuperview()
         vc.view.removeFromSuperview()
+        vc.view.accessibilityElementsHidden = false
         vc.removeFromParent()
     }
 
     private func attach(_ l: Layer, above below: UIView?, top: Bool) {
         prepare(l.vc)
         let v = l.vc.view!
+        // Hidden here before as an opaque screen under one that hides it (its view was the holder): read again.
+        v.accessibilityElementsHidden = false
         let holder: UIView
         if l.seeThrough {
             // Sized before the screen goes in: grown from zero later, it would grow the screen by as much again.
@@ -182,12 +194,12 @@ final class ZnSeeThroughBox: UIViewController {
     private func close(_ l: Layer, animated: Bool) {
         print("zn t=\(ZnDebug.ms()) see-through: \(l.entry) closes")
         // Out of VoiceOver while it fades: the screens below are read again at once (hideBelow).
-        l.holder?.accessibilityViewIsModal = false
         l.holder?.accessibilityElementsHidden = true
         l.vc.willMove(toParent: nil)
         let done = {
             l.holder?.removeFromSuperview()
             l.vc.view.removeFromSuperview()
+            l.vc.view.accessibilityElementsHidden = false  // its view may be the holder: read again if it comes back
             l.vc.removeFromParent()
         }
         guard animated, l.seeThrough, !l.dragged, let h = l.holder, h.window != nil, l.transition != .none,
@@ -292,8 +304,8 @@ extension EnvironmentValues {
 
 /// The Switches and Checkboxes that take taps (enabled, with onValueChange), and the boxes that stop taps (znStopsTaps:
 /// an absolute layer, pointerEvents "auto" / "box-only"), for a see-through screen's holder only:
-/// SwiftUI taps them, so the holder can't find a UIKit view there. (Not ZnFieldFocus's boxes: a Pressable around a
-/// field leaves the touch to it, but on Android a Pressable around a Switch still gets the tap.)
+/// SwiftUI taps them, so the holder can't find a UIKit view there. (Switches and Checkboxes are in ZnFieldFocus's boxes
+/// too since A53, which the holder checks first; their markers here stay, as the stop-taps boxes are none of those.)
 @MainActor
 enum ZnSeeThroughTaps {
     private static let views = NSHashTable<UIView>.weakObjects()
