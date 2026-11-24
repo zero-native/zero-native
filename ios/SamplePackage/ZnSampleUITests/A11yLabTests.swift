@@ -89,21 +89,24 @@ final class A11yLabTests: ZnUITestCase {
         let sw = reveal(id("a11y-switch"))
         XCTAssertEqual(sw.label, "Notifications")
         XCTAssertEqual(sw.value as? String, "0")
-        // A Switch inside a Pressable row: on iOS the row takes the tap and the Switch stays as it was. Which of the
-        // two should win is open (A53: Android fires both; innermost wins on both is the recommendation): change this
-        // when Pavan decides.
+        // A Switch inside a Pressable row takes its own tap and the row doesn't fire: the innermost wins (A53, Pavan
+        // 2026-11-24; Android still fires both until ZnSwitch.kt keeps the touch).
         sw.tap()
-        status("row pressed")
-        XCTAssertEqual(sw.value as? String, "0", "A53: the Switch inside the row turned")
+        waitValue(sw, "1")
+        XCTAssertEqual(id("a11y-status").label, "a11y-lab: ready", "A53: the row around the Switch took its tap")
         let check = id("a11y-check")
         XCTAssertEqual(check.label, "Save this card")
         XCTAssertEqual(check.value as? String, "1")
         check.tap()
         waitValue(check, "0")
-        // The row around the Switch is its own button, read by its label.
+        // The row around the Switch is its own button: a tap on its text presses the row, one on the Switch turns
+        // the Switch (above).
         let row = id("a11y-row")
         XCTAssertEqual(row.elementType, .button)
         XCTAssertEqual(row.label, "Notifications")
+        row.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5)).tap()
+        status("row pressed")
+        XCTAssertEqual(sw.value as? String, "1")
         // A Switch in a labelled box: the box is read first, the Switch stays its own.
         XCTAssertEqual(id("a11y-box-ctl").label, "Card settings")
         let boxSwitch = id("a11y-box-switch")

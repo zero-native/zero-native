@@ -1,7 +1,9 @@
 // Switch, Checkbox, Spinner and Progress on iOS, drawn as android/runtime draws them (ZnSwitch.kt, ZnCheckbox.kt,
 // ZnSpinner.kt, ZnProgress.kt), so they look the same on both platforms (not UISwitch: zn components have one look).
 // - Switch / Checkbox are controlled: they show `value` and a tap sends onValueChange(!value); JS decides. The change
-//   animates in 150 ms (not on first show). Disabled: 0.38 opacity, no taps. A 48 × 48 touch area, as Android's.
+//   animates in 150 ms (not on first show). Disabled: 0.38 opacity, no taps. A 48 × 48 touch area, as Android's, and
+//   a round 20 pt halo while pressed (Android's ripple). Inside a Pressable the control takes its own tap (A53).
+//   The 0.38 fades each part on its own (the track shows through the thumb), as Android draws each at 0.38 alpha.
 // - Spinner: a 270° arc turning once a second, `size` (24) and `color`.
 // - Progress: as wide as its parent, `height` (4) tall; a `value` 0–1 animates in 150 ms; no value: a bar sliding
 //   across every 1.2 s.
@@ -28,21 +30,84 @@ private struct ZnToggleTap: ViewModifier {
     @Environment(\.znTouchOff) private var touchOff
 
     func body(content: Content) -> some View {
-        content
-            .frame(minWidth: 48, minHeight: 48)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                guard !disabled, s.onValueChange != 0 else { return }
-                ctx.send(inst.id, s.onValueChange, .bool(!on))
+        let takes = !disabled && s.onValueChange != 0
+        // A Button (it was an onTapGesture) for its pressed state: the halo shows while the finger is down, as
+        // Android's ripple on finger down. Its taps are the same SwiftUI tap: up inside, a scroll that starts cancels it.
+        Button {
+            guard takes else { return }
+            ctx.send(inst.id, s.onValueChange, .bool(!on))
+        } label: {
+            content
+                .frame(minWidth: 48, minHeight: 48)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(ZnToggleStyle(s: s, halo: takes))
+        // Its frame while it takes taps: a see-through screen takes the tap here (ZnSeeThroughHolder).
+        .background(ZnSeeThroughTapMarker(off: touchOff || disabled || s.onValueChange == 0))
+        // And a box a Pressable around it leaves to it (ZnTouchControl.hitTest): the innermost control wins (A53,
+        // Pavan 2026-11-24). In a tappable row the row took the tap and the Switch never turned; in a rail inside a
+        // card the card was pressed too. A disabled one (or one with no onValueChange) leaves the tap to the row,
+        // as Android, where it has no pointer input then.
+        .background(ZnFieldBoxMarker(key: "toggle:" + ZnFieldFocus.key(inst, s.index),
+                                     off: touchOff || disabled || s.onValueChange == 0))
+        .accessibilityElement()
+        .accessibilityAddTraits(trait)
+        .accessibilityValue(on ? "1" : "0")
+        // accessibilityLabel (also from a slot), hint and testID (ZnAccessibility.swift).
+        .znFieldA11y(s, label: s.accessibilityLabelNow(inst))
+        .environment(\.isEnabled, !disabled)  // VoiceOver reads a disabled one as "dimmed"
+    }
+}
+
+/// Switch / Checkbox touch feedback, as Android's ZnRipple(bounded = false, radius = 20) on them (ZnSwitch.kt,
+/// ZnCheckbox.kt): a round halo of radius 20 around the control's middle, black at 16 % (a `rippleColor` at its own
+/// RGB; `rippleOpacity` wins), with the Pressable ripple's timings (ZnRippleTiming). None while it takes no taps
+/// (disabled, or no onValueChange), as Android, which has no pointer input then. Inside a Scroll a quick tap shows
+/// none: SwiftUI's Button gets its press only at the lift there, as UIKit's buttons.
+private struct ZnToggleStyle: ButtonStyle {
+    let s: ZnNodeSpec
+    let halo: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .overlay {
+                if halo {
+                    ZnToggleHalo(pressed: configuration.isPressed, color: znRippleColor(s.rippleColor),
+                                 alpha: s.rippleOpacity ?? 0.16)
+                }
             }
-            // Its frame while it takes taps: a see-through screen takes the tap here (ZnSeeThroughHolder).
-            .background(ZnSeeThroughTapMarker(off: touchOff || disabled || s.onValueChange == 0))
-            .accessibilityElement()
-            .accessibilityAddTraits(trait)
-            .accessibilityValue(on ? "1" : "0")
-            // accessibilityLabel (also from a slot), hint and testID (ZnAccessibility.swift).
-            .znFieldA11y(s, label: s.accessibilityLabelNow(inst))
-            .environment(\.isEnabled, !disabled)  // VoiceOver reads a disabled one as "dimmed"
+    }
+}
+
+private struct ZnToggleHalo: View {
+    let pressed: Bool
+    let color: Color
+    let alpha: Double
+    @State private var shown = false
+    @State private var grown = false
+    @State private var downAt = Date.distantPast
+
+    var body: some View {
+        Circle()
+            .fill(color)
+            .frame(width: 40, height: 40)
+            .scaleEffect(grown ? 1 : 0.2)
+            .opacity(shown ? alpha : 0)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .onChange(of: pressed) { _, down in
+                if down {
+                    downAt = Date()
+                    var t = Transaction()
+                    t.disablesAnimations = true
+                    withTransaction(t) { grown = false }
+                    withAnimation(.linear(duration: ZnRippleTiming.enter)) { shown = true }
+                    withAnimation(.easeOut(duration: ZnRippleTiming.grow)) { grown = true }
+                } else {
+                    let wait = max(0, ZnRippleTiming.hold - Date().timeIntervalSince(downAt))
+                    withAnimation(.easeOut(duration: ZnRippleTiming.exit).delay(wait)) { shown = false }
+                }
+            }
     }
 }
 
