@@ -50,6 +50,7 @@ final class NavRaceTests: ZnUITestCase {
 
     /// JS pushes while a back swipe is held, and the swipe then finishes: native and JS both end on the new screen
     /// over the lab, and Back from it shows the lab (before the fix, the swiped-off screen came back blank under it).
+    /// A smoke test: the old 0.5 s safety net also recovered here, so it passes on the old code too.
     func testPushDuringSwipe() {
         launch("navRaceLab", until: { self.text("Navigation race") })
         app.buttons["Push target"].firstMatch.tap()

@@ -129,6 +129,9 @@ final class TouchLabMoreTests: TouchLabCase {
     }
 
     /// The rail in [card] takes no touches (pointerEvents): a swipe on it doesn't scroll it, a tap presses the card.
+    /// Smoke tests: both also pass without the polish round's pointerEvents guard (a rail under pointerEvents none or
+    /// box-only isn't registered as a scroll inside the Pressable), whose bug was never made to happen; they keep the
+    /// behaviour, they don't prove that guard.
     private func railTakesNoTouches(_ card: String, _ name: String) {
         let rail = at(id(card), 0.5, 0.7)
         swipeLeft(rail)
