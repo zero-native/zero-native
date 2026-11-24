@@ -210,6 +210,17 @@ export function RnPropsLabScreen() {
           <Pressable testID="slop" hitSlop={20} onPress={() => say("slop hit")} style={{ position: "absolute", top: 20, start: 40, width: 24, height: 24, backgroundColor: "#4F46E5" }} />
           <Pressable testID="noslop" onPress={() => say("noslop hit")} style={{ position: "absolute", top: 20, start: 200, width: 24, height: 24, backgroundColor: "#9CA3AF" }} />
         </Stack>
+        {/* The minimum touch area (iOS 44 pt, Android 48 dp): a 24 pt button over empty space takes a tap just past its
+            edge; of two close buttons the nearer one takes a tap between them; a small button inside a tappable card
+            takes a tap just past its edge, and the card the rest. */}
+        <Stack style={{ height: 64, backgroundColor: "#F3F4F6" }}>
+          <Pressable testID="min-free" onPress={() => say("min-free hit")} style={{ position: "absolute", top: 20, start: 40, width: 24, height: 24, backgroundColor: "#4F46E5" }} />
+          <Pressable testID="near-a" onPress={() => say("near-a hit")} style={{ position: "absolute", top: 20, start: 160, width: 24, height: 24, backgroundColor: "#4F46E5" }} />
+          <Pressable testID="near-b" onPress={() => say("near-b hit")} style={{ position: "absolute", top: 20, start: 196, width: 24, height: 24, backgroundColor: "#9CA3AF" }} />
+        </Stack>
+        <Pressable testID="card" onPress={() => say("card hit")} style={{ height: 64, backgroundColor: "#E5E7EB", justifyContent: "center", paddingStart: 40 }}>
+          <Pressable testID="card-btn" onPress={() => say("card button hit")} style={{ width: 24, height: 24, backgroundColor: "#4F46E5" }} />
+        </Pressable>
 
         <PropsTitle text="Image tint and events, onLayout" />
         <Row gap={12}>

@@ -277,6 +277,9 @@ final class ZnPressLink {
 extension EnvironmentValues {
     /// The Pressable around this node's paint (see ZnPressLink). Cleared under the node itself.
     @Entry var znPressLink: ZnPressLink? = nil
+    /// The Pressables holding this node (their ZnPressLink ids): a small button's grown touch area beats a card around
+    /// it, never a sibling Pressable under it (ZnTouchControl.hitTest).
+    @Entry var znPressAncestors: [ObjectIdentifier] = []
 }
 
 /// The press feedback (ripple or highlight, in the node's shape now, corners from motion values too), the press look
@@ -303,8 +306,10 @@ private struct ZnPressDrawn: ViewModifier {
     let inst: ZnInstance
     let link: ZnPressLink
     let element: ZnElementMotion?
+    @Environment(\.znPressAncestors) private var ancestors
 
     func body(content: Content) -> some View {
+        let me = ObjectIdentifier(link)
         let state = link.state
         // `disabled` may change at runtime (a slot, e.g. the Pay button's disabled={!active()}).
         let disabled = s.disabledNow(inst)
@@ -312,14 +317,22 @@ private struct ZnPressDrawn: ViewModifier {
         let pe = s.pointerEventsNow(inst)
         let selfOff = pe == Registry.PointerEvents.none || pe == Registry.PointerEvents.boxNone
         content
+            .environment(\.znPressAncestors, ancestors + [me])
             .overlay { ZnPressFeedbackNow(s: s, inst: inst, state: state).accessibilityHidden(true) }
             .scaleEffect(state.pressed ? s.pressScale : 1)
             .opacity(state.pressed ? s.pressOpacity : 1)
             .animation(.spring(response: 0.2, dampingFraction: 0.8), value: state.pressed)
-            // hitSlop: the touch view reaches past the Pressable by the slop (start / end follow the layout
-            // direction, as SwiftUI's leading / trailing).
-            .overlay(ZnTouchTarget(ctx: ctx, s: s, inst: inst, state: state, disabled: disabled, off: selfOff)
-                .padding(s.hitSlop.map { EdgeInsets(top: -$0.top, leading: -$0.start, bottom: -$0.bottom, trailing: -$0.end) } ?? EdgeInsets()))
+            // hitSlop, grown to Apple's 44 pt minimum touch area (ZnTouchRules.reach; Android has Compose's 48 dp): the
+            // touch view reaches past the Pressable by it (start / end follow the layout direction, as SwiftUI's
+            // leading / trailing).
+            .overlay {
+                GeometryReader { g in
+                    let r = ZnTouchRules.reach(width: g.size.width, height: g.size.height, slop: znTouchSlop(s))
+                    ZnTouchTarget(ctx: ctx, s: s, inst: inst, state: state, disabled: disabled, off: selfOff, reach: r,
+                                  own: me, ancestors: ancestors)
+                        .padding(EdgeInsets(top: -r.top, leading: -r.start, bottom: -r.bottom, trailing: -r.end))
+                }
+            }
             .modifier(ZnPressMotion(link: link, element: element))
     }
 }

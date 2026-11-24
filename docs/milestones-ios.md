@@ -265,6 +265,7 @@ and the measurement tools (§11).
 | pressFeedback, highlightColor, rippleColor / Opacity / Borderless / Radius | done | | ZnPress.swift `ZnPressFeedback`. |
 | disabled at runtime | done | | 774308f. |
 | hitSlop | done (2026-11-12) | S | The touch area grows by negative padding; in the slop, another Pressable under the finger wins (Android's rule). |
+| Minimum touch area (44 pt) | done (simulator, 2026-11-24) | S | Decided 2026-11-24: Apple's 44 pt, centred (Android: Compose's 48 dp). ZnTouchRules.reach (hitSlop only adds; nothing for a Pressable not laid out; Mac suite uirules), ZnTouchControl.hitTest: a Pressable under the finger wins in the extra area unless it holds this one (znPressAncestors: a card around a small button), the nearer of two overlapping areas wins, and a scroll view, Sheet or screen edge clips it. UI test LabTests.testMinTouchArea (RnPropsLab). |
 | A Pressable moved by `transform` takes taps where it is drawn | done (2026-11-23, W3-B) | M | The press feedback, the press look (pressScale / pressOpacity) and the touch view sit inside the node's layer (ZnPressInLayer, ZnElementMotion.swift), as Compose's pointer input inside graphicsLayer; the ripple turns and scales with it and keeps its corners. A Switch / Checkbox inside a Pressable is unchanged (A53, open). Lab elementValuesLab box. |
 
 ### TextField

@@ -172,6 +172,12 @@ struct ZnTouchTarget: UIViewRepresentable {
     let disabled: Bool
     /// Takes no taps (pointerEvents "none" / "box-none" on this node): hidden, as under znTouchOff.
     var off = false
+    /// How far the touch view reaches past the node (hitSlop grown to the 44 pt minimum: ZnTouchRules.reach), when the
+    /// caller sized it so; else the node's hitSlop.
+    var reach: ZnTouchReach? = nil
+    /// This Pressable's id and the Pressables holding it (ZnPressLink ids; see znPressAncestors).
+    var own: ObjectIdentifier? = nil
+    var ancestors: [ObjectIdentifier] = []
 
     func makeUIView(context: Context) -> ZnTouchControl {
         let c = ZnTouchControl()
@@ -184,10 +190,12 @@ struct ZnTouchTarget: UIViewRepresentable {
         // On a hidden tab (ZnTabsView), inside pointerEvents "none" (or a "box-only" parent), or "none" / "box-none"
         // itself: out of every hit test, also the inner-Pressable check of the controls over it.
         c.isHidden = context.environment.znInHiddenTab || context.environment.znTouchOff || off
-        let slop = s.hitSlop ?? ZnEdges()
+        let slop = reach ?? znTouchSlop(s)
         let rtl = context.environment.layoutDirection == .rightToLeft
         c.slop = UIEdgeInsets(top: slop.top, left: rtl ? slop.end : slop.start, bottom: slop.bottom, right: rtl ? slop.start : slop.end)
         c.isEnabled = !disabled
+        c.own = own
+        c.ancestors = Set(ancestors)
         c.haptic = s.haptic
         c.repeatDelay = s.onPressRepeat != 0 ? s.repeatDelayMs / 1000 : nil
         c.repeatInterval = s.repeatIntervalMs / 1000
@@ -210,6 +218,12 @@ struct ZnTouchTarget: UIViewRepresentable {
     }
 }
 
+/// A node's hitSlop as a ZnTouchReach (0 on each side without one).
+func znTouchSlop(_ s: ZnNodeSpec) -> ZnTouchReach {
+    let e = s.hitSlop ?? ZnEdges()
+    return ZnTouchReach(top: e.top, start: e.start, bottom: e.bottom, end: e.end)
+}
+
 final class ZnTouchControl: UIView {
     enum Kind { case down, out, tap, long, `repeat` }
 
@@ -229,6 +243,10 @@ final class ZnTouchControl: UIView {
     var slop: UIEdgeInsets = .zero
     /// The Pressable itself, without its slop.
     var core: CGRect { bounds.inset(by: slop) }
+    /// This Pressable's id and the Pressables that hold it (a card around a button).
+    var own: ObjectIdentifier?
+    var ancestors: Set<ObjectIdentifier> = []
+    private func holds(_ other: ZnTouchControl) -> Bool { other.own.map { ancestors.contains($0) } ?? false }
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard let hit = super.hitTest(point, with: event), let window else { return nil }
@@ -236,18 +254,33 @@ final class ZnTouchControl: UIView {
         // Sizes and the finger in the window's space: the touch views sit inside their Pressables' layers, so a scaled
         // or turned parent scales and turns them (its children with it).
         let area = windowArea(core, window)
-        // In the slop, past the Pressable's own edges: another Pressable right under the finger wins, as on Android
-        // (Compose's minimum touch size; RN would give it to the one on top). Over empty space the slop counts.
+        // In the slop (hitSlop and the 44 pt minimum), past the Pressable's own edges: another Pressable right under
+        // the finger wins, as on Android (Compose's minimum touch size; RN would give it to the one on top), unless it
+        // holds this one (a tappable card around a small button: the button keeps its grown area, as on Android).
+        // Where two grown areas overlap, the nearer Pressable wins. Over empty space the slop counts.
         let inSlop = !core.contains(point)
+        let mine = windowRect(core, window)
         let screen = screenController
         // Only controls of the same screen: a screen under the top one (still in the hierarchy during and after a
         // push) must not take its taps (found 2026-11-08: Home's buttons blocked the Dev screen's).
         for other in ZnTouchControl.live.allObjects
         where other !== self && other.window === window && !other.isHidden && other.screenController === screen {
+            let q = other.convert(p, from: window)
             // Under the finger: in its own space, so a turned one's corners don't count.
-            guard other.core.contains(other.convert(p, from: window)) else { continue }
-            // An inner Pressable takes the touch; in our slop, any Pressable under the finger does.
-            if inSlop || other.windowArea(other.core, window) < area { return nil }
+            if other.core.contains(q) {
+                // An inner Pressable takes the touch; in our slop, any Pressable under the finger does, but not one
+                // that holds this one.
+                if inSlop ? !holds(other) : other.windowArea(other.core, window) < area {
+                    return nil
+                }
+            } else if other.bounds.contains(q), other.reaches(p, in: window) {
+                let theirs = other.windowRect(other.core, window)
+                // On this Pressable itself, in the grown area of a small one inside it (a card's button): the inner one
+                // takes it, as on Android. In our slop with theirs too: the nearer one takes it.
+                if inSlop ? ZnTouchRules.distance(p, to: theirs) < ZnTouchRules.distance(p, to: mine) : other.holds(self) {
+                    return nil
+                }
+            }
         }
         // A TextField inside the Pressable (a dialog's note field in a tappable dim, a search field in a tappable row):
         // the field takes the touch, as on Android, where the innermost one gets it. It never could (2026-11-19).
@@ -256,6 +289,25 @@ final class ZnTouchControl: UIView {
             return nil
         }
         return hit
+    }
+
+    /// Would a touch at [p] (window space) reach this view? Each view above it must take the point too: a scroll view,
+    /// a Sheet or the screen clips the grown area, so a Pressable scrolled out of sight never wins from under its edge.
+    func reaches(_ p: CGPoint, in window: UIWindow) -> Bool {
+        var v = superview
+        while let s = v, s !== window {
+            if s.isHidden || !s.isUserInteractionEnabled || !s.point(inside: s.convert(p, from: window), with: nil) { return false }
+            v = s.superview
+        }
+        return true
+    }
+
+    /// [r]'s bounding box as drawn in [window] (a turned rect's corners included).
+    func windowRect(_ r: CGRect, _ window: UIWindow) -> CGRect {
+        let pts = [CGPoint(x: r.minX, y: r.minY), CGPoint(x: r.maxX, y: r.minY), CGPoint(x: r.minX, y: r.maxY), CGPoint(x: r.maxX, y: r.maxY)]
+            .map { convert($0, to: window) }
+        let xs = pts.map(\.x), ys = pts.map(\.y)
+        return CGRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
     }
 
     /// [r]'s area as drawn in [window] (its transforms' scale; a turn doesn't change it).

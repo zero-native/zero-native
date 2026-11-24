@@ -60,6 +60,23 @@ final class RnPropsLabTests: ZnUITestCase {
         id("noslop").tap()
         status("noslop hit")
     }
+
+    func testMinTouchArea() {
+        // 24 pt squares grow to 44 pt touch areas (10 pt each side; ZnTouchRules.reach).
+        func at(_ testID: String, dx: CGFloat) -> XCUICoordinate {
+            reveal(id(testID)).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).withOffset(CGVector(dx: dx, dy: 0))
+        }
+        at("min-free", dx: -20).tap()  // 8 pt past its edge, over empty space
+        status("min-free hit")
+        at("near-a", dx: 16).tap()     // 4 pt past A, 8 pt before B: both grown areas, A is nearer
+        status("near-a hit")
+        at("near-b", dx: -15).tap()    // 3 pt before B, 9 pt past A: B is nearer
+        status("near-b hit")
+        at("card-btn", dx: 18).tap()   // 6 pt past the button, on the card around it: the button
+        status("card button hit")
+        at("card-btn", dx: 90).tap()   // well away from the button: the card
+        status("card hit")
+    }
 }
 
 /// The text input screen (route input, examples/sample/src/InputScreen.tsx): a controlled field that formats as you

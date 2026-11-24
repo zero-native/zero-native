@@ -49,5 +49,22 @@ check("autocorrect default", ZnFieldRules.autocorrect(true, secure: false), true
 check("autocorrect off", ZnFieldRules.autocorrect(false, secure: false), false)
 check("autocorrect secure", ZnFieldRules.autocorrect(true, secure: true), false)
 
+// Touch area: at least 44 per axis, centred; hitSlop only adds; nothing for a Pressable not laid out.
+let none = ZnTouchReach()
+check("36 icon grows 4 each side", ZnTouchRules.reach(width: 36, height: 36, slop: none), ZnTouchReach(top: 4, start: 4, bottom: 4, end: 4))
+check("big row unchanged", ZnTouchRules.reach(width: 300, height: 56, slop: none), none)
+check("wide but short", ZnTouchRules.reach(width: 120, height: 20, slop: none), ZnTouchReach(top: 12, start: 0, bottom: 12, end: 0))
+check("slop counts toward 44", ZnTouchRules.reach(width: 24, height: 24, slop: ZnTouchReach(top: 4, start: 4, bottom: 4, end: 4)),
+      ZnTouchReach(top: 10, start: 10, bottom: 10, end: 10))
+check("big slop kept", ZnTouchRules.reach(width: 24, height: 24, slop: ZnTouchReach(top: 20, start: 20, bottom: 20, end: 20)),
+      ZnTouchReach(top: 20, start: 20, bottom: 20, end: 20))
+check("uneven slop: growth split evenly", ZnTouchRules.reach(width: 20, height: 44, slop: ZnTouchReach(top: 0, start: 10, bottom: 0, end: 0)),
+      ZnTouchReach(top: 0, start: 17, bottom: 0, end: 7))
+check("not laid out", ZnTouchRules.reach(width: 0, height: 0, slop: none), none)
+check("turned off", ZnTouchRules.reach(width: 10, height: 10, slop: none, minSize: 0), none)
+check("distance inside", ZnTouchRules.distance(CGPoint(x: 5, y: 5), to: CGRect(x: 0, y: 0, width: 10, height: 10)), 0)
+check("distance right", ZnTouchRules.distance(CGPoint(x: 13, y: 5), to: CGRect(x: 0, y: 0, width: 10, height: 10)), 3)
+check("distance corner", ZnTouchRules.distance(CGPoint(x: 13, y: 14), to: CGRect(x: 0, y: 0, width: 10, height: 10)), 5)
+
 print(failures == 0 ? "ios ui rules: \(count) checks passed" : "ios ui rules: \(failures) of \(count) checks failed")
 exit(failures == 0 ? 0 : 1)

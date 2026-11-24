@@ -1816,6 +1816,11 @@ change: 14).
   usual icon button, it works as in RN.
 - **Know:** every zn `Pressable` smaller than 48 dp already takes taps up to 48 dp (Compose's minimum touch size). RN
   has no such minimum. A UI test also sees that bigger box as the element's bounds.
+- **Know (iOS, since 2026-11-24):** every `Pressable` takes taps up to 44 pt (Apple's guideline), centred on it;
+  `hitSlop` adds to that, never shrinks it. In that extra area a tappable element right under the finger wins, except
+  a Pressable holding this one (a small button in a tappable card keeps its area, as on Android); where two buttons'
+  extra areas overlap, the nearer button wins. The area stops at a scroll view's, Sheet's or screen's edge.
+  `ZnTouchRules.minSize` (Swift) changes the 44, or 0 turns it off.
 - `testID`: UI tests (uiautomator, Espresso) find the element by this resource id, on screens, Sheets and Modals.
   Build-time only. Ours use it: `tools/plugin-phone/rnprops.ts`.
 
