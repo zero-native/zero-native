@@ -20,7 +20,7 @@ Each entry says:
 | A4 | 2026-11-08 | Sample | The sample doesn't build from a fresh clone (`offers-data.json` not in git) | fixed on ios (736b8eb) |
 | A5 | 2026-11-08 | Core build | Shared core assumed Android: `posix_fallocate`, MMKV headers, `liblog` | fixed on ios (736b8eb) |
 | A6 | 2026-11-08 | FlowStore | Without space reservation, the first write of a key rewrote the whole file and could fail on a full disk | fixed on ios (736b8eb) |
-| A7 | 2026-11-08 | JS tests | `app-events.test.ts` (and since 2026-11-09 four in `calls.test.ts`) pass alone but fail in the full `bun test` run on the Mac | open |
+| A7 | 2026-11-08 | JS tests | `app-events.test.ts` (and since 2026-11-09 four in `calls.test.ts`) pass alone but fail in the full `bun test` run on the Mac | fixed 2026-11-19 (4f4d6a1: tests-only resets in `calls.ts` and `events.ts`; 1582 pass, 0 fail) |
 | A8 | 2026-11-08 | Navigation | A back gesture that animates before JS answers (Android 13+ predictive back) cannot respect `useBack` | fixed; Android checked on the Lava 2026-11-08 (in main; predictive back on, second-opinions 184) |
 | A9 | 2026-11-08 | JS (shared) | `Platform.OS` was hard-coded "android"; `Platform.select` never looked at `ios` | fixed on ios (no Android change expected) |
 | A10 | 2026-11-08 | Events | An event from the first screen's skeleton (drawn before JS) can reach JS before the screen's handlers exist | not seen on Android (fixed on ios) |
@@ -32,7 +32,7 @@ Each entry says:
 | A16 | 2026-11-10 | Build (app:js, shared) | A plain `.ts` file that imports a `.tsx` file with components fails the build: "Cannot find package 'react'" (found by the ZeroBill session; worked around in ZeroBill) | fixed 2026-11-10 (`compiler/src/plugin.ts`: such a `.ts` file is no longer loaded at build time); test in `compiler/test/build-app.test.ts`; same build for Android and iOS, nothing to check on a phone |
 | A17 | 2026-11-11 | updates CLI (shared) | `updates login` writes ~/.zero-native/updates.json with `mode: 0o600`, but Node applies the mode only when it creates the file: a file made earlier (another server's login) keeps its open mode (found as rw-rw-r-- on the Mac, holding the production admin token; set to 600 by hand). Fix: `chmodSync(loginFile, 0o600)` after the write | open |
 | A18 | 2026-11-11 | OTA needs (shared + Android runtime) | Every module a bundle calls counted for both OSes, so iOS refused every ZeroBill OTA bundle (AdId is Android-only). Per-OS needs written on the Mac, Kotlin included but not compiled there (Gradle couldn't download): docs/ota-requires-per-os.md | checked on Android 2026-11-10: 530 Android unit tests, OTA phone matrix 40 of 40 and updates:phone 7 of 7 on the Lava |
-| A19 | 2026-11-11 | Repo (Android) | `android/gradlew` is mode 100644 in git: on the Mac `./gradlew` says "permission denied" (`bash ./gradlew` works). Fix: `git update-index --chmod=+x android/gradlew` | open |
+| A19 | 2026-11-11 | Repo (Android) | `android/gradlew` is mode 100644 in git: on the Mac `./gradlew` says "permission denied" (`bash ./gradlew` works). Fix: `git update-index --chmod=+x android/gradlew` | fixed 2026-11-19 (8e35cdd; `git ls-files -s android/gradlew` shows 100755) |
 | A20 | 2026-11-11 | Plugins (shared + Android) | Native module names didn't say their plugin (`Push` in firebase-messaging, `Auth` in android-play-auth): Pavan found the dashboard's needs list confusing. Renamed to `FirebaseMessaging`, `FirebaseAnalytics`, `FirebaseCrashlytics`, `FirebasePerf`, `FirebaseRemoteConfig`, `FirebaseApp`, `FirebaseInstallations`, `AndroidAdId`, `AndroidPlayAuth` (docs/plugins.md, "Module names"); Kotlin `ZnModuleBase(...)` names changed on the Mac, not compiled there | checked on Android 2026-11-10: unit tests, ZeroBill staging on the Lava, and three production AABs (168–170) built for Pavan's Play test |
 | A21 | 2026-11-11 | ZeroBill JS (shared) | ZeroBill now listens to `Push.onNotificationOpenedApp` and `Push.getInitialNotification` (for pushes iOS shows itself). They run on Android too: a tap on a notification FCM showed itself (a message with a `notification` block) now opens the push's `action`. Today's server sends `notification: {}`, so Android shows ZeroBill's own and this path isn't hit. Also: the server change for iOS (an `apns` block) is written for Pavan; Android ignores `apns` | checked on the Lava 2026-11-10 (ZeroBill dev build at 8a6156e, pushes sent with tools/push-send.ts): a data-only push (ZeroBill shows it) and a push with a `notification` block (FCM shows it), each tapped with the app behind and after the app died: one notification, one `[Push] tap`, one open in all 4 |
 | A22 | 2026-11-10 | Push (Android) | Pushes the phone showed itself: iOS reports shown, swipe and buttons; Android doesn't | open, a gap |
@@ -194,7 +194,11 @@ Each entry says:
 - **Check on Android:** `.\tools\run-core-tests.ps1` ("flowstore: files have no holes ..." passes, no note printed).
 
 ## A7. A JS test depends on test file order
-- **Status:** open.
+- **Status:** fixed 2026-11-19 (4f4d6a1, "core: tests pass whatever order the files run in"). `bun test` runs every
+  file in one process: motion.test.ts left Motion calls nobody answered (calls.test.ts counts pending calls), and
+  earlier files' startApp left app-event handlers. Tests-only resets in `calls.ts` and `events.ts`, as
+  resetNativeConstantsForTests. `bun run test`: 1582 pass, 0 fail then. Nothing to check on Android beyond `bun test`
+  on Windows.
 - **Problem:** on the Mac, `bun test packages plugins compiler tools` gives 1164 pass, 1 fail:
   `packages/core/test/app-events.test.ts` "native calls still settle after startApp". It passes when run alone
   (`bun test packages/core/test/app-events.test.ts`). In the full run its host logs about 50 lines like "app event 12
