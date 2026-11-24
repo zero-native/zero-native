@@ -14,10 +14,13 @@
 //      lays the next row out for the focus search).
 //   9. A multiline field with maxHeight 112 in a Modal (ZeroBill's review box).
 //  10. A multiline field with maxHeight 70 in a List's rows: each row is 70 + its padding tall, not its whole text.
+//  11. letterSpacing keeps a label centred in its pill, and a centred spaced paragraph centred on each line.
+//  12. lineHeight: each line after the first adds lineHeight, loose (16 / 24) and tight (32 / 30). Tight is a known iOS gap:
+//      SwiftUI keeps the font's own line height there (iOS FAILs it; Android should pass).
 //
 //   adb shell am start -a android.intent.action.VIEW -d "zn://sample/dev/text-polish" dev.zeronative.sample
 //   (iOS passes over the read-only field in §2; Compose can focus a readOnly field, so Android may stop there.)
-import { Column, List, Modal, Pressable, Row, Scroll, Tabs, Text, TextField } from "@zeronative/ui"
+import { Column, List, Modal, Pressable, Row, Scroll, Stack, Tabs, Text, TextField } from "@zeronative/ui"
 import { createRef, nav, signal, type TextFieldHandle } from "@zeronative/core"
 import { c } from "./tokens"
 
@@ -35,6 +38,30 @@ function TpTitle(props: { text: string }) {
 const listFields = Array.from({ length: 8 }, (_, i) => ({ id: `r${i + 1}` }))
 const listNotes = [{ id: "n1" }, { id: "n2" }]
 const sixLines = "One\nTwo\nThree\nFour\nFive\nSix"
+
+// §11 and §12 (round 6, 2026-11-24). §11: a spaced label is as wide as before (half the spacing on each side, as
+// Android), so "pill" is "pill-plain" + 5 × 6. §12: with Compose's default line height style (trimmed at the top and
+// bottom), N lines are the font's height + (N - 1) × lineHeight, tight or loose: the second line adds lineHeight.
+// "text-polish lineHeight tight ok|FAIL ..." and the same for loose. Tight FAILs on iOS (known gap, ZnText.swift header).
+type LayoutEvent = { nativeEvent: { layout: { width: number; height: number } } }
+const tpWidth = (name: string) => (e: LayoutEvent) => say(`width ${name} ${Math.round(e.nativeEvent.layout.width * 100) / 100}`)
+const lhHeights = new Map<string, number>()
+const lhSummary = signal("lineHeight: measuring…")
+function tpHeight(name: string) {
+  return (e: LayoutEvent) => {
+    lhHeights.set(name, e.nativeEvent.layout.height)
+    const parts: string[] = []
+    for (const [kind, lh] of [["tight", 30], ["loose", 24]] as const) {
+      const one = lhHeights.get(`${kind}-1`)
+      const two = lhHeights.get(`${kind}-2`)
+      if (one === undefined || two === undefined) return
+      const ok = Math.abs(two - one - lh) <= 1
+      parts.push(`${kind} ${ok ? "ok" : "FAIL"} 1 line ${Math.round(one * 10) / 10}, 2 lines ${Math.round(two * 10) / 10} (+${lh} wanted)`)
+    }
+    for (const p of parts) say(`lineHeight ${p}`)
+    lhSummary.set(parts.join("; "))
+  }
+}
 
 export function TextPolishLabScreen() {
   const note = signal("One\nTwo\nThree\nFour\nFive\nSix\nSeven\nEight")
@@ -227,6 +254,41 @@ export function TextPolishLabScreen() {
         <Pressable testID="tp-open-review" onPress={() => reviewOpen.set(true)} style={{ padding: 8, borderRadius: 8, backgroundColor: c.pillBg }}>
           <Text fontSize={13} color={c.ink}>Open the review box</Text>
         </Pressable>
+
+        <TpTitle text="11. letterSpacing stays centred" />
+        <Row style={{ gap: 8, alignItems: "center" }}>
+          <Row testID="tp-pill" justifyContent="center" style={{ width: 120, paddingVertical: 4, borderRadius: 12, backgroundColor: "#FDE68A" }}>
+            <Text testID="tp-pill-text" onLayout={tpWidth("pill")} fontSize={14} fontWeight={700} letterSpacing={6} color={c.ink}>
+              OFFER
+            </Text>
+          </Row>
+          <Text onLayout={tpWidth("pill-plain")} fontSize={14} fontWeight={700} color={c.ink} style={{ backgroundColor: "#E0E7FF" }}>
+            OFFER
+          </Text>
+        </Row>
+        <Stack style={{ width: 220, backgroundColor: c.white }}>
+          <Text testID="tp-spaced-centre" fontSize={15} letterSpacing={4} textAlign="center" color={c.ink} style={{ width: 220 }}>
+            Spaced words wrap onto a second line here
+          </Text>
+          <Column style={{ position: "absolute", top: 0, bottom: 0, start: 109.5, width: 1, backgroundColor: "#EF4444" }} />
+        </Stack>
+
+        <TpTitle text="12. lineHeight: each line after the first adds lineHeight (tight: an iOS gap)" />
+        <Text testID="tp-lh-tight-1" onLayout={tpHeight("tight-1")} fontSize={32} lineHeight={30} fontWeight={700} color={c.ink} style={{ backgroundColor: "#FEF3C7" }}>
+          Tight
+        </Text>
+        <Text testID="tp-lh-tight-2" onLayout={tpHeight("tight-2")} fontSize={32} lineHeight={30} fontWeight={700} color={c.ink} style={{ backgroundColor: "#FEF3C7" }}>
+          {"Tight\nheading"}
+        </Text>
+        <Text testID="tp-lh-loose-1" onLayout={tpHeight("loose-1")} fontSize={16} lineHeight={24} color={c.ink} style={{ backgroundColor: "#E0E7FF" }}>
+          Loose
+        </Text>
+        <Text testID="tp-lh-loose-2" onLayout={tpHeight("loose-2")} fontSize={16} lineHeight={24} color={c.ink} style={{ backgroundColor: "#E0E7FF" }}>
+          {"Loose\nlines"}
+        </Text>
+        <Text testID="tp-lh-summary" fontSize={12} color={c.muted}>
+          {lhSummary()}
+        </Text>
       </Scroll>
       <Modal visible={reviewOpen()} transparent animationType="fade" onRequestClose={() => reviewOpen.set(false)}>
         <Column justifyContent="flex-end" style={{ flex: 1, backgroundColor: "#00000080" }}>
