@@ -483,7 +483,9 @@ struct ZnEnterExit: ViewModifier {
             .offset(x: inV(enter?.translateX, 0) + outV(exit?.translateX, 0), y: inV(enter?.translateY, 0) + outV(exit?.translateY, 0))
             // A fade fades the element as one picture, as Android's graphicsLayer alpha: overlapping parts (a card's
             // fill under its text) don't show through each other. Static for the node (its template's enter / exit),
-            // so the group never comes or goes mid-fade.
+            // so the group never comes or goes mid-fade (taking it off after the fade would make the content new and
+            // reset its state). Its cost at rest: 100 List rows with an enter fade scrolled at 60 frames/s with
+            // 1.33 ms of main thread per frame against 1.13 without (simulator, ZN_MOTION_PERF, /dev/paint/fade-list).
             .modifier(ZnOpacityGroup(on: (enter?.opacity != nil || exit?.opacity != nil) && s.drawsOverlappingParts))
             .opacity(inV(enter?.opacity, 1) * outV(exit?.opacity, 1))
             .allowsHitTesting(!exiting)
