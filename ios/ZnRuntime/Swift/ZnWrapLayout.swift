@@ -38,14 +38,17 @@ struct ZnWrapLayout: Layout {
     private static func finite(_ v: CGFloat?) -> CGFloat? { v.flatMap { $0.isFinite ? $0 : nil } }
 
     /// Where [count] items of [sizes] go along [length] with [arrangement] (JustifyContent numbers) and [gap].
+    /// center and flex-end use the signed space, so lines taller than the Row hang over both ends (centred) or over the
+    /// start, as Android's ZnJustifyWithGap and ZnFlexLayout; the space-* ones never squeeze below the gap.
     static func arrange(_ arrangement: Int, length: CGFloat, sizes: [CGFloat], gap: CGFloat) -> [CGFloat] {
         let n = CGFloat(sizes.count)
         let content = sizes.reduce(0, +) + gap * max(n - 1, 0)
-        let free = max(0, length - content)
+        let left = length - content
+        let free = max(0, left)
         var lead: CGFloat = 0, between = gap
         switch arrangement {
-        case Registry.JustifyContent.center: lead = free / 2
-        case Registry.JustifyContent.flexEnd: lead = free
+        case Registry.JustifyContent.center: lead = left / 2
+        case Registry.JustifyContent.flexEnd: lead = left
         case Registry.JustifyContent.spaceBetween: if n > 1 { between += free / (n - 1) }
         case Registry.JustifyContent.spaceAround: if n > 0 { lead = free / n / 2; between += free / n }
         case Registry.JustifyContent.spaceEvenly: if n > 0 { lead = free / (n + 1); between += free / (n + 1) }
@@ -118,7 +121,11 @@ struct ZnWrapLayout: Layout {
         let contentW = lineWidths.max() ?? 0
         let width = definiteWidth ? (maxW ?? contentW) : min(contentW, maxW ?? .infinity)
         let contentH = lineHeights.reduce(0, +) + crossGap * CGFloat(max(lines - 1, 0))
-        let height = max(definiteHeight ? (Self.finite(proposal.height) ?? contentH) : contentH, minHeight)
+        // A definite height that is offered a size takes it as it is: the min is already kept inside the offer
+        // (ZnMinMaxLayout, as Android's znSizeInConstraints), so a `flex: 1, minHeight` wrap Row arranges its lines in
+        // its share, not in a taller box drawn past it. The min still raises a content-sized height.
+        let offered = definiteHeight ? Self.finite(proposal.height) : nil
+        let height = offered ?? max(contentH, minHeight)
         let tops = Self.arrange(alignContent, length: height, sizes: lineHeights, gap: crossGap)
         var frames = Array(repeating: CGRect.zero, count: n)
         for l in 0..<lines {

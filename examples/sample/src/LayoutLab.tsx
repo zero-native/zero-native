@@ -133,6 +133,13 @@ const EXPECT: Record<string, Frame> = {
   // Stack put their child at the share's end, not past it under the footer).
   c50e: [0, 0, 200, 60], c50f: [0, 50, 200, 10], c50g: [0, 0, 150, 20], c50h: [140, 0, 10, 20],
   c50i: [0, 0, 200, 60], c50j: [0, 50, 20, 10],
+  // 52. A wrapped Row (flexWrap) follows the same two rules as case 50 and Yoga / Android:
+  // - flex 1 + minHeight 80 in a 100 tall Column above a 40 tall footer gets 60, and alignContent flex-end puts its line
+  //   at the end of that 60, not of its min (iOS put it at 70, under the footer, until 2026-11-24);
+  // - lines taller than the Row (two 20 tall lines in a 20 tall Row) with alignContent center hang over both ends
+  //   (-10 and 10), and with flex-end over the top (-20 and 0), as Android's arrangements (iOS clamped them to 0 and 20).
+  c52a: [0, 0, 200, 60], c52b: [0, 50, 20, 10],
+  c52c: [0, -10, 150, 20], c52d: [0, 10, 150, 20], c52e: [0, -20, 150, 20], c52f: [0, 0, 150, 20],
 }
 
 // 51. Content bigger than its box with justifyContent center / flex-end (checked apart from EXPECT: the frames differ by
@@ -632,6 +639,26 @@ export function LayoutLabScreen() {
               <Box testID="c51c" onLayout={LO("c51c")} style={{ width: 30, height: 40, borderWidth: 2, borderColor: B }} />
             </Row>
           </Row>
+        </Case>
+        <Case title="52. A wrapped Row: min in its share, lines over its ends">
+          <Column style={{ width: 200, height: 100, backgroundColor: BG }}>
+            <Row testID="c52a" onLayout={L("c52a")} style={{ flex: 1, minHeight: 80, flexWrap: "wrap", alignContent: "flex-end", backgroundColor: A }}>
+              <Box testID="c52b" onLayout={L("c52b")} style={{ width: 20, height: 10, backgroundColor: B }} />
+            </Row>
+            <Box style={{ height: 40, backgroundColor: B }} />
+          </Column>
+          <Column style={{ paddingVertical: 20 }}>
+            <Row style={{ width: 200, height: 20, flexWrap: "wrap", alignContent: "center", backgroundColor: BG }}>
+              <Box testID="c52c" onLayout={L("c52c")} style={{ width: 150, height: 20, backgroundColor: A }} />
+              <Box testID="c52d" onLayout={L("c52d")} style={{ width: 150, height: 20, backgroundColor: B }} />
+            </Row>
+          </Column>
+          <Column style={{ paddingTop: 20 }}>
+            <Row style={{ width: 200, height: 20, flexWrap: "wrap", alignContent: "flex-end", backgroundColor: BG }}>
+              <Box testID="c52e" onLayout={L("c52e")} style={{ width: 150, height: 20, backgroundColor: A }} />
+              <Box testID="c52f" onLayout={L("c52f")} style={{ width: 150, height: 20, backgroundColor: B }} />
+            </Row>
+          </Column>
         </Case>
       </Column>
     </Scroll>
