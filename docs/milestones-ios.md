@@ -533,6 +533,7 @@ Full entries are in `docs/milestones.md` `## Log`, newest first.
 | Date | Piece | Commit |
 |---|---|---|
 | 2026-11-24 | Round 6 A: a Switch / Checkbox inside a Pressable takes its own tap (A53), their halo, ripple timings and borderless radius, a disabled Pressable leaves the tap to its card, long press in a Scroll from the finger, route option accessibilityHidesBelow (A100) | round 6 A |
+| 2026-11-24 | Minor text, paint and image fixes: a flex child's min in its share, oversized content centred, enter / exit fade as one picture, pictures fade in (not from memory), letterSpacing centred, the cursor in the text colour | round 6 B |
 | 2026-11-24 | Screens polish: a push during a slide (no blank screen), edge back swipe over carousels, Scroll clipped at the bars, light template, toast follows the keyboard | polish D |
 | 2026-11-24 | Motion gate: the engine on by default, host API 10 (native only), no motion bundle for iOS apps below 10, method coverage test | W5-A |
 | 2026-11-24 | TSX image viewer on iOS end to end (paging, zoom, close, labels); List rows laid out under the bars; UI test ImageViewerTests | W5-B |
