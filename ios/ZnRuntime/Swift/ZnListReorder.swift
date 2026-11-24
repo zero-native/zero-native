@@ -29,7 +29,19 @@ extension ZnCollectionList.Coordinator: UICollectionViewDragDelegate, UICollecti
         // Header, footer and empty item can't be picked (Android's pick).
         guard canReorder, ip.section == rowsPart, let row = rows[safe: ip.item] else { return [] }
         let item = UIDragItem(itemProvider: NSItemProvider())
-        item.localObject = row.key
+        let picked = ZnDragRow(key: row.key)
+        item.localObject = picked
+        // An inverted list is flipped and each row flipped back inside it (cell.contentView), so UIKit's own preview
+        // of the cell, drawn outside the list, showed the row upside down for the whole drag (2026-11-24). The drag
+        // preview is the row as it shows instead, from the moment the finger moves (the drop then flies it to its
+        // place: drop(_:at:in:_:moving:)). UIKit's lift preview, while the finger holds still after the pick, is
+        // still upside down: it is drawn from the cell's last frame with no say for the app (tried 2026-11-24:
+        // unflipping the cell for the lift, or flipping the cell instead of its content, didn't change it).
+        if cv.transform.d < 0, let cell = cv.cellForItem(at: ip) {
+            let image = znUprightImage(of: cell)
+            picked.image = image
+            item.previewProvider = { znDragPreview(image) }
+        }
         dropShown = ip
         dropDone = false
         dropTick.prepare()
@@ -81,8 +93,10 @@ extension ZnCollectionList.Coordinator: UICollectionViewDragDelegate, UICollecti
         // From here UIKit only animates the row into its place: JS's rows can go in again.
         dropDone = true
         defer { flushHeld(cv) }
+        // The row's own cell (UIKit hides it while it is dragged): it moves to its place under the flying row (drop).
+        let moving = cv.cellForItem(at: src)
         guard to != src.item else {
-            coordinator.drop(item.dragItem, toItemAt: src)
+            drop(item.dragItem, at: src, in: cv, coordinator, moving: moving)
             return
         }
         cv.performBatchUpdates {
@@ -92,13 +106,33 @@ extension ZnCollectionList.Coordinator: UICollectionViewDragDelegate, UICollecti
             keys = r.map(\.key)
             cv.moveItem(at: src, to: target)
         }
-        coordinator.drop(item.dragItem, toItemAt: target)
+        drop(item.dragItem, at: target, in: cv, coordinator, moving: moving)
         // from: the row's index in JS's rows (the order shown may still be an earlier drop's); to: its place now.
         guard let ctx, let inst, let s, let list else { return }
         let from = list.row(row.key)?.index ?? src.item
         print("zn t=\(ZnDebug.ms()) list: reorder drops \(row.key) \(from) → \(to), waiting for JS")
         startReorderWait(cv, list)
         if s.onReorder != 0 { ctx.send(inst.id, s.onReorder, .string("\(from),\(to)")) }
+    }
+
+    /// The dropped row flies from the finger to its place [ip]. UIKit's own drop animation (drop(_:toItemAt:)) on an
+    /// inverted list jumped: the row showed upside down about a row's height off, then slid to the gap (2026-11-24;
+    /// UIKit places its preview of the cell as if the list weren't flipped). There it flies as it shows, upright, to
+    /// the place the row has in the list (converted through the flip) and the row's own cell shows when it lands.
+    private func drop(_ dragItem: UIDragItem, at ip: IndexPath, in cv: UICollectionView,
+                      _ coordinator: UICollectionViewDropCoordinator, moving: UICollectionViewCell?) {
+        guard cv.transform.d < 0, (dragItem.localObject as? ZnDragRow)?.image != nil, let container = cv.superview,
+              let frame = cv.layoutAttributesForItem(at: ip)?.frame else {
+            coordinator.drop(dragItem, toItemAt: ip)
+            return
+        }
+        let place = cv.convert(frame, to: container)
+        let target = UIDragPreviewTarget(container: container, center: CGPoint(x: place.midX, y: place.midY))
+        // Its cell stays hidden while it slides from the old place to the new one under the flying row (it showed: a
+        // second copy of the row coming up from the bottom), and shows when the row lands.
+        let cell = moving ?? cv.cellForItem(at: ip)
+        cell?.alpha = 0
+        coordinator.drop(dragItem, to: target).addCompletion { [weak cell] _ in cell?.alpha = 1 }
     }
 
     func collectionView(_ cv: UICollectionView, dropSessionDidEnd session: UIDropSession) {
@@ -172,4 +206,32 @@ extension ZnCollectionList.Coordinator: UICollectionViewDragDelegate, UICollecti
         reorderTimer = nil
         reorderWait.version = nil
     }
+}
+
+/// The row a drag picked up (UIDragItem.localObject): its key and, in an inverted list, how it shows (the preview).
+final class ZnDragRow {
+    let key: String
+    var image: UIImage?
+    init(key: String) { self.key = key }
+}
+
+/// [cell] of an inverted (flipped) list as it shows on screen: drawn flipped once more, so its row reads the right way
+/// up (the cell's own drawing has the row flipped back for the flipped list).
+@MainActor
+private func znUprightImage(of cell: UICollectionViewCell) -> UIImage {
+    UIGraphicsImageRenderer(bounds: cell.bounds).image { r in
+        r.cgContext.translateBy(x: 0, y: cell.bounds.height)
+        r.cgContext.scaleBy(x: 1, y: -1)
+        cell.drawHierarchy(in: cell.bounds, afterScreenUpdates: false)
+    }
+}
+
+/// A drag preview of [image] with the lifted row's corners (dragPreviewParametersForItemAt).
+@MainActor
+private func znDragPreview(_ image: UIImage) -> UIDragPreview {
+    let v = UIImageView(image: image)
+    v.frame = CGRect(origin: .zero, size: image.size)
+    let p = UIDragPreviewParameters()
+    p.visiblePath = UIBezierPath(roundedRect: v.bounds, cornerRadius: 10)
+    return UIDragPreview(view: v, parameters: p)
 }
