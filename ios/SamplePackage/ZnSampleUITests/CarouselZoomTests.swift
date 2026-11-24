@@ -1,9 +1,11 @@
 import XCTest
 
 /// The zoomable photos in a Carousel (route motionMediaLab, examples/sample/src/MotionMediaLab.tsx, part a): a double
-/// tap zooms a photo to 2.5x, and a drag soon after moves the photo, not the Carousel's page. Round 7: when UIKit gave
-/// the drag's move to the Carousel's pan before the hub's claim, the hub read the pan (held by UIKit for the claim) as
-/// having the touch, and the page turned (ZnGestureHub.held). The photos come from picsum.photos (a network is needed).
+/// tap zooms a photo to 2.5x, and a drag soon after moves the photo, not the Carousel's page; at fit the drag turns it.
+/// Round 7 (ZnGestureHub.held): a pan held by UIKit for the hub's claim reads "began" and no longer counts as having
+/// the touch. Here UIKit gives the zoomed drags' moves to the claim first (it passed 4 of 4 without the fix too); the
+/// drag at fit does meet the held pan (ZN_GESTURE_LOG "held for the claim") and must still turn the page. The race
+/// itself is ImageViewerTests.testZoomKeepsThePage's. The photos come from picsum.photos (a network is needed).
 final class CarouselZoomTests: ZnUITestCase {
     override func setUp() {
         super.setUp()
