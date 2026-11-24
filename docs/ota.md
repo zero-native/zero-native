@@ -6,8 +6,8 @@
 **Status: built on Android (steps 4.0–4.9 done 2026-10-31; the phone test matrix passed 28 of 28 on the Lava after the hardening steps, 2026-11-02;
 `docs/ota-test-matrix.md`). Decided 2026-10-30 (Pavan accepted D1–D5 as recommended, §2). Built since: bsdiff
 patches (`znbsdiff1`, `docs/ota-patches.md`; iOS since 2026-11-22) and the iOS client (§3.5, "iOS"; 2026-11-10; the
-simulator matrix 20 of 20, `docs/ota-test-matrix.md` "iOS"; the phone part not run yet). Not built: the GCS store adapter (waits for a test bucket).**
-Built from
+simulator matrix 20 of 20, `docs/ota-test-matrix.md` "iOS"; the phone part not run yet). Not built: the GCS store
+adapter (waits for a test bucket).** Built from
 ARCHITECTURE §16 and ZeroBill's React Native OTA v2 (`my-rn-app/docs/ota_architecture.md`, v7.1),
 keeping every lesson that applies.
 
