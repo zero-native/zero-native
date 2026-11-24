@@ -236,38 +236,37 @@ enum ZnFieldFocus {
 
     /// returnKeyType "next": focuses the field after [field] on its screen, as Compose's default for ImeAction.Next
     /// (focus moves on and the keyboard stays up). After means in reading order: the next line down, or further on
-    /// (right, left in a right-to-left layout) on the same line. Fields iOS can't focus are passed over: not editable,
-    /// under pointerEvents "none", on a hidden tab (Compose can still focus a readOnly or untouchable field: iOS only,
-    /// as a read-only one-line field takes no focus here, decision 1). A List row's field goes on to its List's next
-    /// rows first, also those past its edge (nextRow). False when there is none: the keyboard then closes, as before.
+    /// (right, left in a right-to-left layout) on the same line. Inside a List it is row order, as Compose's focus
+    /// search goes by the order of the items: n1 → n2 → n3 also in an inverted List (n1 at the bottom, the next one
+    /// above it) and in a sideways List in a right-to-left layout (the next one to the left); a List counts as one
+    /// block where it lies among the fields around it (ZnFieldOrder). Fields iOS can't focus are passed over: not
+    /// editable, under pointerEvents "none", on a hidden tab (Compose can still focus a readOnly or untouchable field:
+    /// iOS only, as a read-only one-line field takes no focus here, decision 1). A List row's field goes on to its
+    /// List's next rows first, also those past its edge (nextRow). False when there is none: the keyboard then closes,
+    /// as before.
     static func focusNext(after field: UIView) -> Bool { focusNext(after: field, rowsOn: 0, waits: 0) }
 
     private static func focusNext(after field: UIView, rowsOn: Int, waits: Int) -> Bool {
         guard let window = field.window else { return false }
         let screen = znNearestController(field)
-        let me = field.convert(field.bounds, to: window)
-        let rtl = field.effectiveUserInterfaceLayoutDirection == .rightToLeft
-        // a before b: a higher line, or the same line (their middles within half the smaller height) and further on.
-        func before(_ a: CGRect, _ b: CGRect) -> Bool {
-            guard abs(a.midY - b.midY) < min(a.height, b.height) / 2 else { return a.midY < b.midY }
-            return rtl ? a.maxX > b.maxX : a.minX < b.minX
-        }
-        let after = views.compactMap { (key, w) -> (UIView, CGRect, Bool)? in
+        let order = ZnFieldOrder(window: window, rtl: field.effectiveUserInterfaceLayoutDirection == .rightToLeft)
+        guard let me = order.key(field) else { return false }
+        let after = views.compactMap { (key, w) -> (UIView, [ZnFieldOrder.Step], Bool)? in
             guard let v = w.view, v !== field, v.window === window, !v.isHidden, v.isUserInteractionEnabled,
                   boxes[key]?.view?.isHidden != true, znNearestController(v) === screen else { return nil }
             if let t = v as? UITextView, !t.isEditable { return nil }
-            let f = v.convert(v.bounds, to: window)
-            return before(me, f) ? (v, f, w.placeholder) : nil
-        }.sorted { before($0.1, $1.1) }
+            guard let k = order.key(v), order.before(me, k) else { return nil }
+            return (v, k, w.placeholder)
+        }.sorted { order.before($0.1, $1.1) }
         // A field that says no (editable={false} refuses in textFieldShouldBeginEditing): the one after it.
-        func take(_ list: [(UIView, CGRect, Bool)]) -> Bool {
+        func take(_ list: [(UIView, [ZnFieldOrder.Step], Bool)]) -> Bool {
             for (v, _, placeholder) in list where !placeholder && v.becomeFirstResponder() {
                 print("zn t=\(ZnDebug.ms()) field: next → the field at y \(Int(v.convert(v.bounds, to: window).minY))")
                 return true
             }
             return false
         }
-        // In a List, its own rows come first, also those not made yet (nextRow), before a field below the List.
+        // In a List, its own rows come first, also those not made yet (nextRow), before a field after the List.
         if let row = listRow(of: field) {
             let mine = after.filter { $0.0.isDescendant(of: row.list) }
             // The next row is a placeholder (JS mounts it a moment after it shows): wait for it, up to a second.
@@ -280,6 +279,7 @@ enum ZnFieldFocus {
             }
             if take(mine) { return true }
             if nextRow(after: field, in: row, rowsOn: rowsOn) { return true }
+            return take(after.filter { !$0.0.isDescendant(of: row.list) })
         }
         return take(after)
     }
@@ -296,7 +296,7 @@ enum ZnFieldFocus {
         return (list, at)
     }
 
-    /// A field in a List row with no field after it among the rows that show: the rows below aren't made yet (a
+    /// A field in a List row with no field after it among the rows that show: the rows after it aren't made yet (a
     /// UICollectionView makes only the rows that show). Compose's LazyColumn lays out the next item for a focus search
     /// and moves focus into it, so this shows the next row (the least scroll) and looks again, a row at a time, up to 5
     /// rows on; then a field after the List; none: the keyboard closes. The keyboard stays up meanwhile. False: no row
@@ -305,21 +305,33 @@ enum ZnFieldFocus {
                                 rowsOn: Int) -> Bool {
         guard rowsOn < 5 else { return false }
         let cv = row.list
-        // Every item in order (header, rows, footer: one section each); an inverted list's next is the one before.
+        // Every item in order (header, rows, footer: one section each). The next is the next item also in an inverted
+        // or right-to-left list (row order): only where it shows differs, and scrolling to its frame covers that.
         let all = (0..<cv.numberOfSections).flatMap { sec in
             (0..<cv.numberOfItems(inSection: sec)).map { IndexPath(item: $0, section: sec) }
         }
-        let step = cv.transform.d < 0 ? -1 : 1
-        guard let i = all.firstIndex(of: row.at), all.indices.contains(i + step * (rowsOn + 1)) else { return false }
-        let next = all[i + step * (rowsOn + 1)]
-        let horizontal = cv.contentSize.width > cv.bounds.width + 0.5 && cv.contentSize.height <= cv.bounds.height + 0.5
-        cv.scrollToItem(at: next, at: horizontal ? .right : (step < 0 ? .top : .bottom), animated: false)
+        guard let i = all.firstIndex(of: row.at), all.indices.contains(i + rowsOn + 1) else { return false }
+        let next = all[i + rowsOn + 1]
+        if let frame = cv.layoutAttributesForItem(at: next)?.frame {
+            cv.scrollRectToVisible(frame, animated: false)  // the least scroll, whichever side it is on
+        } else {
+            cv.scrollToItem(at: next, at: [], animated: false)
+        }
         cv.layoutIfNeeded()
         print("zn t=\(ZnDebug.ms()) field: next → showing list row \(next.item) (section \(next.section)) to look there")
-        DispatchQueue.main.async {
+        // A row just made draws its SwiftUI (and so its field) a frame or two later: look once its cell has a field,
+        // or after about a quarter second (a row with no field; seen 2026-11-24: looking at once missed s4 and the
+        // keyboard closed).
+        func look(_ tries: Int) {
             guard field.isFirstResponder else { return }  // the user moved on meanwhile
+            if tries < 8, let cell = cv.cellForItem(at: next),
+               !views.values.contains(where: { $0.view?.isDescendant(of: cell) == true }) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { look(tries + 1) }
+                return
+            }
             if !focusNext(after: field, rowsOn: rowsOn + 1, waits: 0) { field.resignFirstResponder() }
         }
+        DispatchQueue.main.async { look(0) }
         return true
     }
 
@@ -551,7 +563,7 @@ struct ZnUIKitField: UIViewRepresentable {
         print("zn t=\(ZnDebug.ms()) field: JS changed the text to \"\(value)\"")
         // Keep the cursor's distance from the end: a reformat ("1234" → "1,234") leaves it after the same digit.
         let fromEnd = f.selectedTextRange.map { f.offset(from: $0.end, to: f.endOfDocument) } ?? 0
-        f.text = value
+        c.apply(value, to: f)
         if let p = f.position(from: f.endOfDocument, offset: -min(fromEnd, value.count)) {
             f.selectedTextRange = f.textRange(from: p, to: p)
         }
@@ -571,8 +583,27 @@ struct ZnUIKitField: UIViewRepresentable {
         var placeholder: (String?, UIColor, UIFont, ZnFieldExtras)?
         /// letterSpacing and decoration last set on the text.
         var extras: ZnFieldExtras?
+        /// JS's value is going in (apply): the editingChanged it sends isn't the user's.
+        private var applying = false
+
+        /// JS's [value] into [f] through the text input system (UITextInput's replace), not `f.text =`: a key the
+        /// keyboard had queued while the text was set from outside was lost (A93: typing 1234567 fast into a field JS
+        /// regroups gave "1,23,456"). replace doesn't ask shouldChangeCharactersIn, so editable, maxLength and the
+        /// phone rule don't apply to JS's value (as with `f.text =`). Only while the user can type (focused and
+        /// editable): keys queue only then; otherwise `f.text =` as before. Undo: as `f.text =` did, nothing is left to
+        /// undo after JS's value (the field's undo history is cleared). Kept, one undo would take back only JS's
+        /// regroup, JS would regroup again at once, and undo would seem to do nothing.
+        func apply(_ value: String, to f: UITextField) {
+            guard editable, f.isFirstResponder, let all = f.textRange(from: f.beginningOfDocument, to: f.endOfDocument)
+            else { f.text = value; return }
+            applying = true
+            f.replace(all, withText: value)
+            applying = false
+            f.undoManager?.removeAllActions()
+        }
 
         @objc func changed(_ f: UITextField) {
+            if applying { return }
             guard let s, let state, s.onChangeText != 0 else { return }
             if f.markedTextRange != nil { return }  // an IME is composing: send when it commits
             state.seq += 1
@@ -823,7 +854,7 @@ struct ZnUIKitTextView: UIViewRepresentable {
         if let n = answers, n != state.seq { return }
         guard value != v.text, v.markedTextRange == nil else { return }
         let fromEnd = v.selectedTextRange.map { v.offset(from: $0.end, to: v.endOfDocument) } ?? 0
-        v.text = value
+        c.apply(value, to: v)
         c.applyExtras(v)  // a new text has only the font and colour
         v.invalidateIntrinsicContentSize()
         v.znTextChanged()
@@ -856,7 +887,24 @@ struct ZnUIKitTextView: UIViewRepresentable {
             v.typingAttributes.merge(a) { $1 }
         }
 
+        /// JS's value is going in (apply): the textViewDidChange it sends isn't the user's.
+        private var applying = false
+
+        /// JS's [value] into [v] through UITextInput's replace, as the one-line field (A93): with `v.text =` keys typed
+        /// meanwhile landed before the last character (1234567 fast gave 12,35,674). shouldChangeTextIn isn't asked
+        /// (editable and maxLength don't apply to JS's value, as before). Only while focused and editable, and the
+        /// undo history is then cleared, as the one-line field's apply says why.
+        func apply(_ value: String, to v: UITextView) {
+            guard v.isEditable, v.isFirstResponder, let all = v.textRange(from: v.beginningOfDocument, to: v.endOfDocument)
+            else { v.text = value; return }
+            applying = true
+            v.replace(all, withText: value)
+            applying = false
+            v.undoManager?.removeAllActions()
+        }
+
         func textViewDidChange(_ v: UITextView) {
+            if applying { return }
             placeholder?.isHidden = !v.text.isEmpty
             (v as? ZnFieldTextView)?.znTextChanged()
             // UIKit's typing attributes go back to the font and colour when the text is emptied.
@@ -891,6 +939,63 @@ struct ZnUIKitTextView: UIViewRepresentable {
             focusChanged(false)
             if let s, s.onBlur != 0 { send(s.onBlur, nil) }
         }
+    }
+}
+
+/// The order "next" goes in (ZnFieldFocus.focusNext). A field's key is the path down to it: the outermost List
+/// (UIKit variant) it is in, its row's index path there, then the next List inside that row, and so on, and last the
+/// field. Two keys compare at the first step where they part: Lists and fields by where they lie on the screen
+/// (reading order: a higher line first, then left to right, right to left in a right-to-left layout), rows of one
+/// List by their index path (row order, as Compose's focus search: the same in an inverted or right-to-left List).
+@MainActor
+struct ZnFieldOrder {
+    enum Step {
+        /// A List or the field, at [frame] in the window.
+        case block(ObjectIdentifier, CGRect)
+        /// A row of the List before.
+        case row(IndexPath)
+    }
+    let window: UIWindow
+    let rtl: Bool
+
+    /// nil: in a List row UIKit has no index path for (a cell going away).
+    func key(_ field: UIView) -> [Step]? {
+        var steps: [Step] = []
+        var below: UIView = field  // the view under the current one on the way up
+        var v = field.superview
+        var inner: UIView = field  // the block found last (a List, or the field to begin with)
+        while let sv = v {
+            if let list = sv as? ZnListCollectionView {
+                guard let cell = below as? UICollectionViewCell, let ip = list.indexPath(for: cell) else { return nil }
+                steps = [.row(ip), block(inner)] + steps
+                inner = list
+            }
+            below = sv
+            v = sv.superview
+        }
+        return [block(inner)] + steps
+    }
+
+    private func block(_ v: UIView) -> Step { .block(ObjectIdentifier(v), v.convert(v.bounds, to: window)) }
+
+    /// a before b: a higher line, or the same line (their middles within half the smaller height) and further on.
+    func before(_ a: CGRect, _ b: CGRect) -> Bool {
+        guard abs(a.midY - b.midY) < min(a.height, b.height) / 2 else { return a.midY < b.midY }
+        return rtl ? a.maxX > b.maxX : a.minX < b.minX
+    }
+
+    func before(_ a: [Step], _ b: [Step]) -> Bool {
+        for (x, y) in zip(a, b) {
+            switch (x, y) {
+            case let (.block(i, f), .block(j, g)):
+                if i != j { return before(f, g) }
+            case let (.row(p), .row(q)):
+                if p != q { return p < q }
+            default:
+                return false  // can't happen: both paths go block, row, block, ...
+            }
+        }
+        return false
     }
 }
 
