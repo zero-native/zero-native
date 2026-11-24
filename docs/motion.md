@@ -2,11 +2,16 @@
 
 zero-native's version of react-native-gesture-handler + Reanimated + worklets, built our own way. The plan and its
 decisions are in `docs/gestures-and-motion-v1.md` (D1–D10). This file is the reference: the model, every API, and the
-do / don't / why. Android is built (registry 24); iOS has it too (see "iOS port" at the end).
+do / don't / why. Android is built (registry 24); iOS has all of it, in every build since 2026-11-24 (§13, §14).
+Where iOS differs in a detail, `docs/guides/platform-differences.md` §3 says so.
 
 Code: `packages/core/src/motion.ts` (JS), `compiler/src/motion.ts` (derive), `android/runtime/.../ZnMotion.kt`
 (values, animations), `ZnFormula.kt` (derive), `ZnGesture.kt` (gestures), `ZnMotionUi.kt` (element values, corners,
 layout motion), `ZnShared.kt` (shared elements), `ZnReorder.kt` (List reorder), `ZnMotionApi.kt` (plugins, tilt).
+iOS (`ios/ZnRuntime/Swift/`): `ZnMotionEngine.swift` and `ZnMotionModule.swift` (values, animations), `ZnFormula.swift`
+(derive), `ZnMotionBindings.swift` (bindings), `ZnGesture*.swift` and `ZnZoom.swift` (gestures), `ZnElementMotion.swift`
+(element values), `ZnLayoutMotion.swift` (animateLayout), `ZnShared.swift` (shared elements), `ZnListReorder.swift`
+(List reorder), `ZnMotionApi.swift` and `ZnTilt.swift` (plugins, tilt).
 
 ## 1. The model in one paragraph
 
@@ -51,7 +56,8 @@ x()          // read in JS (a signal: native starts sending changes); x.peek() r
   (12,34,567) by default; halves round away from zero; the minus goes before the prefix.
   Text around it in the same `<Text>` (`<Text>Saved {amount.format()}</Text>`) becomes its prefix and suffix (core
   `labelInText`). One format per `<Text>`.
-- **Reduced motion:** with "Remove animations" on, commands jump to their end and loops don't run.
+- **Reduced motion:** with Android's "Remove animations" or iOS's Reduce Motion on, commands jump to their end and
+  loops don't run.
 
 ## 3. Window and size values
 
@@ -83,7 +89,7 @@ const bg = derive(() => interpolateColor(progress(), [0, 1], ["#FFFFFF", "#5B5BD
 
 | Where | Keys |
 |---|---|
-| `style` | `opacity`, `backgroundColor` (a motion colour), `transform` (`translateX/Y`, `scale`, `scaleX/Y`, `rotate`, `rotateX`, `rotateY`), `cameraDistance`, `blurRadius` (Android 12+), border radii (corner morphs) |
+| `style` | `opacity`, `backgroundColor` (a motion colour), `transform` (`translateX/Y`, `scale`, `scaleX/Y`, `rotate`, `rotateX`, `rotateY`), `cameraDistance`, `blurRadius` (Android 12+; every iOS version), border radii (corner morphs) |
 | Svg parts | `fill`, `stroke` (motion colours), `opacity`, transforms, `trimStart / trimEnd / trimOffset` |
 | `<Text>` | its content as `v.format(...)` |
 | `<NativeView props>` | any prop a plugin reads with `scope.motion(name)` (§10); `<LottieView progress>` (registry 24) |
@@ -103,7 +109,7 @@ const pan = usePan({
   bounds: { x: [0, "100%"] },                     // "100%": the room to travel (parent minus own size)
   anchors: [{ id: "start", x: 0 }, { id: "paid", x: "100%" }],
   release: { threshold: { velocity: 400 } },      // or project: true (where a fling would stop), decay: true
-  a11yLabel: "Slide to pay ₹499",                 // required with anchors (usePan throws): one TalkBack action each
+  a11yLabel: "Slide to pay ₹499",                 // required with anchors (usePan throws): one TalkBack / VoiceOver action each
   haptic: { snap: "success" },
   onEnd: (e) => e.anchor === "paid" && pay(),
 })
@@ -116,7 +122,7 @@ const pan = usePan({
   dragged sideways at an edge, it lets the pager turn the page. Put the gesture on a box that fills the page and the
   transform on the photo inside: `transform: [{ translateX: z.x }, { translateY: z.y }, { scale: z.scale }]`.
   `aspect` (width / height, a number or a value) tells it where the photo's edges are inside the box.
-  `z.zoomTo(3, { x, y })` and `z.reset()` from JS; TalkBack gets "zoom in" / "zoom out" actions.
+  `z.zoomTo(3, { x, y })` and `z.reset()` from JS; TalkBack and VoiceOver get "zoom in" / "zoom out" actions.
 - **Kinds:** `usePan` (x, y, progress, touchX, touchY, magnets), `usePinch` (scale, focalX, focalY, min / max),
   `useRotate` (angle), `useTap` (taps, maxDelay, maxDistance), `useLongPress` (pressed, held), `useFling` (directions).
 - **Pan options:** `initial`, `bounds`, `rubber`, `anchors` (1D or 2D), `magnets` (`{ id, x, y, radius, pull }`, a pull
@@ -135,7 +141,7 @@ const pan = usePan({
 - **Drop zones:** `usePan({ dropZones: [m1, m2] })` with `useElementMotion()` objects bound on the targets; native
   compares the finger with their boxes, `onZone` hears enter / leave, `onEnd`'s `zone` says where it was dropped.
 - **Edges:** a horizontal pan asks Android to keep the back gesture away from it (the whole element if ≤ 200 dp tall,
-  else a 200 dp band, Android's limit).
+  else a 200 dp band, Android's limit). iOS's back swipe leaves the same area alone, only where the element shows.
 - **At rest on an anchor,** the gesture follows the anchor if it moves (the keyboard opens), with no JS.
 
 ## 7. Layout motion
@@ -148,8 +154,9 @@ const pan = usePan({
   duration | spring, delay }`. Flips and stretches need registry 24.
 - **Shared elements:** `sharedTag={"store-" + id}` on an element of two screens. Push moves it from one to the other;
   Back and the predictive back gesture play it backwards with the finger. An `<Image>` moves as it is; other elements
-  move their box and cross-fade. Not inside a Sheet or Modal (they are their own windows), nor on a screen whose route
-  has no transition.
+  move their box and cross-fade. On iOS the edge swipe scrubs the flight with the finger and puts it back on cancel.
+  Not inside a Sheet or Modal (they are their own windows), nor on a screen whose route has no transition, nor for a
+  see-through screen's own tags; with reduced motion the screens change with no flight.
 
 ## 8. Values from elements
 
@@ -163,10 +170,10 @@ const m = useElementMotion()
 |---|---|
 | any | `x`, `y`, `width`, `height` (the box in the window, dp), `measure()` (async, RN's measureInWindow) |
 | `<Scroll>` | `scrollY` |
-| `<List>` | `index`, `offset` (first visible row, how far past it), `scrollY` / `scrollX` (exact near the top, estimated after) |
+| `<List>` | `index`, `offset` (first visible row, how far past it), `scrollY` / `scrollX` (Android: exact near the top, estimated after; iOS: exact) |
 | `<Carousel>` | `page` (2.5 = half way from 2 to 3) |
 | `<Pressable>` | `pressed` (0 → 1, springy) |
-| `<Sheet>` | `progress` (0 closed → 1 at the tallest detent; follows drag, open, close and predictive back) |
+| `<Sheet>` | `progress` (0 closed → 1 at the tallest detent; follows drag, open, close and predictive back; on iOS the default UIKit sheet only, not `ZN_IOS_SHEET=swiftui`) |
 | pull to refresh | `pull` (0 → 1 at the refresh line, up to 1.5) |
 
 `m.follow(v)` drives the scroll from a value on the UI thread: a Scroll by dp, a List by item index (3.5 = half way
@@ -199,15 +206,26 @@ ZnMotionApi.registerDriver("myplugin.wobble") { from, to, velocity, params -> ob
 val level = scope.motion("level")   // () -> Float, or null
 ```
 
+```swift
+// The same on iOS (ZnMotionApi.swift; ios/Sample/DeviceTestPlugin.swift has the whole orbit).
+let h = ZnMotionApi.value(id)
+let frames = ZnMotionApi.onFrame { now in h.value = ...; return true }
+h.onDispose { frames.cancel() }
+ZnMotionApi.registerDriver("myplugin.wobble") { from, to, velocity, params in ... }   // a ZnMotionDriver
+let level = scope.motion("level")             // (() -> Float)?, read while drawing
+scope.onMotion("level") { v in ... }          // iOS only: called on each frame the value moves (UIKit views)
+```
+
 ```ts
 // In the plugin's package (TS): helpers that call its module, so a bundle that uses them needs the plugin.
 export const orbit = () => nativeMotion((id) => MyPlugin.orbit({ id }))
 export const wobble = (): MotionTiming => ({ driver: "myplugin.wobble", params: { rings: 3 } })
 ```
 
-Rules: main thread; what runs each frame must not allocate; APK only (an OTA bundle can't add native code). An app
-without the plugin refuses a bundle that calls its module; an unknown driver fails the command. The test plugin
-`plugins/device-test` has a working example (orbit, wobble, the fake view's `level`).
+Rules: main thread; what runs each frame must not allocate; in the app binary only (an OTA bundle can't add native
+code). An app without the plugin refuses a bundle that calls its module; an unknown driver fails the command. The test
+plugin `plugins/device-test` (iOS: `ios/Sample/DeviceTestPlugin.swift`) has a working example (orbit, wobble, the fake
+view's `level`). On iOS `onDispose` adds a block; on Android a second one replaces the first (A79).
 
 `useTilt()` is the built-in sensor: `{ x, y }` from -1 to 1 (how the phone leans), smoothed, turned with the screen,
 listening only while held and while the app is in front.
@@ -232,8 +250,8 @@ VoiceOver's drag actions); the drag stays in the app.
 
 - **Do** bind visuals to motion values; **don't** set signals from `onUpdate` to move things: that's a JS round trip
   per frame and it stutters when JS is busy.
-- **Do** give a gesture with anchors or a tap an `a11yLabel`: TalkBack users get an action per anchor. `usePan` with
-  anchors throws without it.
+- **Do** give a gesture with anchors or a tap an `a11yLabel`: TalkBack and VoiceOver users get an action per anchor.
+  `usePan` with anchors throws without it.
 - **Do** use `derive` for maths; **don't** call your own functions in it (build error): it runs natively.
 - **Don't** animate layout keys each frame; use transforms or `animateLayout`.
 - **Do** use `pan.snapTo` to put a slider back after a failed payment; **don't** fight the finger with `v.to` during a
@@ -244,7 +262,7 @@ VoiceOver's drag actions); the drag stays in the app.
 ## 13. Versions and OTA
 
 Everything here needs registry 24 and the `Motion` module (version 1): an app file that imports a motion API from
-`@zeronative/core` makes the bundle require `Motion 1`, so an older APK refuses it and keeps its own bundle. Flip and
+`@zeronative/core` makes the bundle require `Motion 1`, so an older app build refuses it and keeps its own bundle. Flip and
 stretch presets raise the bundle's registry need through the `transition.depth` format. Plugin sources and drivers
 are gated by their plugin's module version.
 
@@ -259,8 +277,20 @@ bundle and to compare a screen's cost.
 
 ## 14. iOS port (for the iOS session)
 
-Done (2026-11-24; docs/milestones-ios.md "Gestures and motion"). The notes below are the port's plan, kept for the
-reasons.
+Done (2026-11-24; docs/milestones-ios.md "Gestures and motion"). As built (`ios/ZnRuntime/Swift/`):
+- Values, timings and commands: `ZnMotionEngine.swift` on a CADisplayLink, the maths in `ZnMotionMath.swift`
+  (Android's numbers, checked by the `motion` Mac suite); formulas: `ZnFormula.swift`, op for op.
+- Bindings: a slot that holds a motion value is read in a leaf modifier (`ZnMotionBindings.swift`: ZnLayer, the
+  background, the corners, ZnSizeFrame); the value's cell is `@Observable`, so a moving value redraws only those
+  modifiers, never a screen's body (about 3–5 ms of main thread per frame for 30 bound elements on the simulator).
+- Gestures: one hub per screen (`ZnGestureHub.swift`) feeds UITouches to recognizers ported from ZnGesture.kt
+  (`ZnGestureRecognizers.swift`, the `gestures` Mac suite); useZoom is `ZnZoom.swift`, not a UIScrollView zoom.
+- Element values: `ZnElementMotion.swift` (boxes, `pressed`, scroll values, follow); shared elements: `ZnShared.swift`
+  with ZnSlideAnimator (`ZnNavHost.swift`) for the slide; reorder: UIKit drag and drop (`ZnListReorder.swift`); tilt:
+  `ZnTilt.swift`; plugin API: `ZnMotionApi.swift`; transparent routes: `ZnSeeThrough.swift` (one box per opaque
+  entry, drawn with the see-through screens over it, not a modal presentation).
+
+The notes below are the port's plan, kept for the reasons.
 
 Same JSON from JS; port in this order: values + timings (CADisplayLink), env values (keyboard frame notifications),
 formulas (port ZnFormula.kt op for op: same opcodes, `x / 0 = 0`, JS Math.round), bindings (CALayer properties or
