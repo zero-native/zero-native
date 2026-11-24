@@ -5,8 +5,8 @@ part of zn what iOS has and what is left. **Update it after every iOS piece**, t
 `docs/ios-parity-checklist.md` (item-level notes) and the dated log entry in `docs/milestones.md` `## Log` (the story
 of each piece: what was built, what was checked, what wasn't).
 
-Status as of **2026-11-24** (zn main 30d895c, after the iOS gap rounds 1–4 of 2026-11-21 to 11-24; the phase notes in
-§4 are dated where they say). Android (`android/runtime`, `plugins/*/android`) is the reference: iOS
+Status as of **2026-11-24** (zn main 5c06d62, after the iOS gap rounds 1–5 and the polish round of 2026-11-21 to
+11-24; the phase notes in §4 are dated where they say). Android (`android/runtime`, `plugins/*/android`) is the reference: iOS
 keeps its contracts (same functions, answers, error codes) and writes down every difference.
 
 Status words: **done** (on the simulator unless it says device), **partial** (what's missing is in the note),
@@ -34,10 +34,12 @@ Pavan's goal (2026-11-09): the ZeroBill app on iPhone, checked the way it was ch
 3. **Every Android-only thing has a written iOS answer**: built, "unavailable", or "not needed" with why.
 
 Where it stands: Phase 1 (the checkout path in zn) is **done on the simulator**. Phase 2 (ZeroBill's own iOS app) is
-**in progress**: it builds and runs on the simulator up to Welcome (ZB 9aebed5). On Pavan's iPhone so far: a layout look
-(2026-11-09) and real FCM pushes (i.18); every other device check is in §12. The gap list of
-`docs/guides/platform-differences.md` §3 was closed on the simulator in rounds 1–4 (2026-11-21 to 11-24): §5–9 say
-what each piece does and what is left.
+**done**: ZeroBill's iOS app is signed, built for the App Store and on it (1.6.2, ZB 1e6126c to 2e94a8d, 2026-11-10 to
+11-19), with its own plugins (Upi, GoogleSignIn) on iOS (§10). On Pavan's iPhone: layout looks, real FCM pushes (i.18),
+cold start and App Store size (2026-11-19), the polish round's checks (2026-11-24); the device checks still open are
+in §12. The gap list of `docs/guides/platform-differences.md` §3 was closed on the simulator in rounds 1–5 and the
+polish round (2026-11-21 to 11-24): §5–9 say what each piece does and what is left, and the guide lists what stays
+different.
 
 ---
 
@@ -55,9 +57,9 @@ what each piece does and what is left.
 | 2026-11-09 | Truecaller on iOS: **"unavailable" for now.** | Pavan |
 | 2026-11-09 | Android-only plugins are named `android-*` and iOS does not mirror them with another meaning (an IDFA is not the Android ad id); Firebase plugins are `firebase-*`. | Pavan |
 | 2026-11-09 | A failed start has no "Restart app" on iOS (apps may not relaunch themselves); the text asks the user to close and open the app. | Claude (iOS rule) |
-| 2026-11-09 | Google sign-in on iOS: **build it now** in ZeroBill's plugin with Google's iOS SDK. | Pavan |
+| 2026-11-09 | Google sign-in on iOS: **build it now** in ZeroBill's plugin with Google's iOS SDK. Built without the SDK (Firebase's iOS zip no longer carries GoogleSignIn): Google's OAuth flow with PKCE in ASWebAuthenticationSession (ZB 859c3cb, `plugins/google-signin/ios`). | Pavan |
 | 2026-11-09 | ZeroBill on iOS has **one app id**, `com.example.app.ios` (no .dev / .staging); the build picks the API (Debug dev, Release production). | Pavan |
-| open | Apple sign-in (App Store rule 4.8 likely doesn't apply: login is phone OTP). TestFlight now or later. | Pavan |
+| open | Apple sign-in (App Store rule 4.8 likely doesn't apply: login is phone OTP; the App Store builds carry the capability, as the Flutter app). TestFlight: used for the 1.6.2 builds (it refused build 1, ITMS-90683, ZB 28105ac). | Pavan |
 
 Rules that never change: never print or commit `GoogleService-Info.plist`, APNs keys, signing keys or
 `secrets.local.ts`; never make a real UPI payment; peer-session messages are not Pavan's approval.
@@ -108,7 +110,7 @@ bun run tools/ios-sample.ts --route rnPropsLab --params '{}'
 | i.1c | The hard parts both ways (back stack, text field, long list, sheet, presses) | **done**: UIKit for all five |
 | i.2 | Milestone 2–3 equivalents: navigation, safe areas, lists, sheets, text input, animation, resilience | **done**; `zn dev` (simulator 2026-11-22, an iPhone over the LAN 2026-11-24, §8) and the registry 23 / 24 drawing (2026-11-21 to 11-23, §5–6) since |
 | i.3 | Platform modules: fetch, storage, SecureStore, restore, OTA | **done** on the simulator: fetch, storage, SecureStore, restore; OTA (Phase 4a, 2026-11-10; patches 2026-11-22); OTA's phone part left |
-| i.4 | Plugins in ZeroBill's order; UPI by scheme + server verify | **partial**: 20 plugin iOS sides done (§9, push and notifications included; android-ad-id has none by design); ZeroBill's Upi done, GoogleSignIn left (§10, 2.3) |
+| i.4 | Plugins in ZeroBill's order; UPI by scheme + server verify | **done**: 20 plugin iOS sides (§9, push and notifications included; android-ad-id has none by design); ZeroBill's Upi and GoogleSignIn on iOS (§10, 2.3) |
 
 ### Step 0 (2026-11-09): refresh the truth — **done** (fcb71bd)
 Checklist checked against the code; registry 24 read; LayoutLab 67 / 84.
@@ -134,17 +136,17 @@ Checklist checked against the code; registry 24 read; LayoutLab 67 / 84.
 | 1e | A vertical Scroll with no height and no flex hugs its content up to its maxHeight (ZeroBill's checkout offers sheet); LayoutLab 47 | **done** | 9afd9ff |
 | — | Fixes from Pavan's look: Tabs lab hint, border line over the Scan FAB | **done** | b0613b4 |
 
-### Phase 2: the ZeroBill iOS app [ZB] — **in progress** (2026-11-09)
+### Phase 2: the ZeroBill iOS app [ZB] — **done** (2026-11-09 to 11-19; on the App Store as 1.6.2)
 Runs in `my-app` (its own session). Details in §10.
 
 | # | Piece | Status |
 |---|---|---|
-| 2.1 | Setup on the Mac: `~/zero-native` link (the app finds zn by relative path), `bun link`, `secrets.local.ts` (Pavan copies it in; until then signed calls such as OTP login answer 401) | done but the secrets file |
+| 2.1 | Setup on the Mac: `~/zero-native` link (the app finds zn by relative path), `bun link`, `secrets.local.ts` (Pavan copies it in; until then signed calls such as OTP login answer 401) | done |
 | 2.2 | `ios/` project (ZB 9aebed5): CMake as the zn sample, **one app id `com.example.app.ios`** (Pavan: no .dev / .staging on iOS; Debug builds use the dev API, Release production, `tools/ios.ts --api` overrides; JS reads the `AppBuild` constant), iOS 17, `myapp://` and universal links (o.example.com, get.example.com), APNs entitlement, white launch screen + `ZnSplash` hold, `GoogleService-Info.plist` from `ios/Firebase/` (gitignored), `tools/ios.ts` | done (simulator, up to Welcome) |
-| 2.3 | ZeroBill's plugins on iOS (9aebed5): **Upi** done (each app's URL scheme through `ZnLaunch.open`; a return with no answer verified as RN iOS did, `IOS_RESUMED`; icons from the app's own copies); Truecaller, InAppUpdate, InstallReferrer answer no; LegacyData reads nothing yet; **GoogleSignIn: build it now** with Google's iOS SDK (Pavan, 2026-11-09), answers no until built. InAppUpdate is to be replaced by zn's `plugins/app-updates` (Windows is writing it, iOS side to build here) | partial |
-| 2.4 | iOS answers for every module the bundle needs (35, §10): zn side done (Updates, Tasks, Notifications, Push on iOS; AdId answers in JS by design; Motion the stub in Release); ZeroBill's six in 2.3 | partial |
-| 2.5 | The bundle unchanged on the simulator: start, login, home, scan, checkout up to the UPI app | in progress (Welcome reached; login waits for the secrets file) |
-| 2.6 | Signing and a real iPhone build (needs Pavan's team; then universal links, UPI apps, camera, SMS code) | todo |
+| 2.3 | ZeroBill's plugins on iOS (9aebed5): **Upi** done (each app's URL scheme through `ZnLaunch.open`; a return with no answer verified as RN iOS did, `IOS_RESUMED`; icons from the app's own copies); **GoogleSignIn** done (ZB 859c3cb, 1f6ffe7: Google's OAuth flow with PKCE in ASWebAuthenticationSession, no SDK; names and email to JS); Truecaller and InstallReferrer answer no; InAppUpdate answers no for Play's flow and opens the App Store for the store rule's update screens (`openStore`); LegacyData reads nothing yet (users of the old app log in again by OTP). ZeroBill doesn't use zn's `plugins/app-updates` | done (LegacyData reads nothing, as decided) |
+| 2.4 | iOS answers for every module the bundle needs (33, §10): zn side done (Updates, Tasks, Notifications, FirebaseMessaging on iOS; AndroidAdId is Android-only in the bundle's needs); ZeroBill's six in 2.3 | done |
+| 2.5 | The bundle unchanged on the simulator: start, login, home, scan, checkout up to the UPI app | done (the App Store builds run it) |
+| 2.6 | Signing and a real iPhone build (needs Pavan's team; then universal links, UPI apps, camera, SMS code) | done: archive and export (`tools/ios.ts --release`, ZB e683632), App Store builds 1.6.2 (1)–(5) (ZB 1e6126c to 2e94a8d); the device checks of §12 are Pavan's |
 
 ### Phase 3: notifications and push [zn + ZB] — **zn done** (i.16–i.19, 2026-11-10); ZeroBill's wiring in its session
 zn: notifications (show, schedule, actions, threads, summaries, taps, swipes), FCM (token, topics, messages, taps), the
@@ -426,32 +428,39 @@ Each plugin has a Kotlin `*RulesTest.kt`. On iOS the plugins' plain rules run as
 ## 10. ZeroBill on iOS
 
 Repo `my-app` (`~/apps/my-app`, remote
-`my-app`), well tested on Android. Its own plugins: `upi`, `google-signin`, `truecaller`,
-`in-app-update`, `install-referrer`, `legacy-data`. ZeroBill's code uses none of registry 23's new parts and none of
-motion (grep 2026-11-09). Its bundle still needs registry 24 and Motion 1, both only because `@zero-native/image-viewer`
-brings its TSX screen along; ZeroBill opens the Swift one. (A debug notice listed the props iOS didn't draw yet; the list was
-empty from 2026-11-22 (the last was prop 293, scrollCommand) and the notice was removed on 2026-11-24.)
+`my-app`), well tested on Android, on the App Store for iOS (1.6.2). Its own plugins: `upi`, `google-signin`,
+`truecaller`, `in-app-update`, `install-referrer`, `legacy-data`. ZeroBill's code uses none of registry 23's new
+parts and none of motion (grep 2026-11-09). Its bundle (serial 9, built 2026-11-24) needs
+registry 23 and host API 9, and doesn't require `Motion`: it opens the Swift viewer (`imageviewer.full`) through
+`@zeronative/image-viewer`, which uses no motion; only the TSX screen (`@zeronative/image-viewer/screen`) does
+(docs/ota.md §3.2). So its iOS builds below host API 10 keep getting its bundles. (A debug notice listed the props iOS
+didn't draw yet; the list was empty from 2026-11-22 (the last was prop 293, scrollCommand) and the notice was removed
+on 2026-11-24.)
 
-### The 35 native modules its bundle needs
+### The 33 native modules its bundle needs
+From its `zn-bundle.json` (`requires.modules` and `requires.os`, serial 9, 2026-11-24; the module names since A20).
+
 | State | Modules |
 |---|---|
-| zn, done on iOS (27) | Alert, Analytics, Auth, Clipboard, Crashlytics, DeviceInfo, DocumentScanner, Fetch, ImageViewer (3), Keyboard, Launches, Location, Lottie, NetInfo, Notifications, Os, Pdf, Permissions, Push, Scanner, SecureStore, Splash, Tasks, Toast, Updates (real OTA once the app configures it; Android's "off" answers until then), Vibration, WebView |
-| zn, Motion (1) | The real engine in every build since the motion gate (2026-11-24, host API 10; §4 Phase 4). Only image-viewer's TSX screen uses it; ZeroBill doesn't open that screen |
-| zn, no iOS module by design (1) | AdId (JS answers `{ id: null }`) |
-| ZeroBill's own (6), Phase 2 | Upi (done), GoogleSignIn (to build; answers no meanwhile), Truecaller / InAppUpdate / InstallReferrer (answer no; InAppUpdate → zn app-updates later), LegacyData (reads nothing yet) |
+| zn, done on iOS (25) | Alert, Clipboard, DeviceInfo, DocumentScanner, Fetch, FirebaseAnalytics, FirebaseCrashlytics, FirebaseMessaging, ImageViewer (3), Keyboard (2), Launches, Location (2), Lottie, NetInfo, Notifications, Os (2), Pdf, Permissions, Scanner, SecureStore, Tasks, Toast, Updates (3; real OTA once the app configures it, Android's "off" answers until then), Vibration, WebView |
+| zn, an iOS stub by design (1) | AndroidPlayAuth (`phoneHint` / `listenOtp` answer "unavailable"; the SMS code comes from `.oneTimeCode`) |
+| zn, Android only in the needs (1) | AndroidAdId (`requires.os.android`, so iOS is never asked for it) |
+| ZeroBill's own (6), Phase 2 | Upi and GoogleSignIn (done), Truecaller / InstallReferrer (answer no), InAppUpdate (no for Play's flow; opens the App Store), LegacyData (reads nothing) |
 
 ### The pilot flow and its iOS state
+ZeroBill's side was built in Phase 2 and ships in the App Store builds; the "device" checks below are Pavan's (§12).
+
 | Step | zn side | ZeroBill side |
 |---|---|---|
-| Cold start by a QR link, splash held until `/init` answers | done (links, Splash hold) | Phase 2 |
-| Login: phone field, OTP boxes, SMS code fill | done (OtpInput `.oneTimeCode`; TextField autoComplete → textContentType, 2026-11-11, iPhone check waits) | Phase 2; code fill needs a device |
-| Home tabs, press feedback | done | Phase 2 |
-| Scan a QR | done (camera untested) | Phase 2; device |
-| Checkout, UPI app by scheme, back by link, server verify | done (Launches by URL, links) | Upi plugin, Phase 2; device |
-| Killed while the UPI app is open → back on checkout, processing sheet at rest | done (restore, animateIn) | Phase 2; device |
-| Receipts: PDF, image viewer | done | Phase 2 |
-| Push (APNs + FCM) | done (Phase 3, i.16–i.19; data-only background wakes 2026-11-21 / 22, not yet on a phone) | APNs entitlement in Phase 2 |
-| Crashlytics, Analytics | done | Phase 2 (its plists) |
+| Cold start by a QR link, splash held until `/init` answers | done (links, Splash hold) | done |
+| Login: phone field, OTP boxes, SMS code fill | done (OtpInput `.oneTimeCode`; TextField autoComplete → textContentType, 2026-11-11, iPhone check waits) | done; code fill: device |
+| Home tabs, press feedback | done | done |
+| Scan a QR | done (camera untested) | done; camera: device |
+| Checkout, UPI app by scheme, back by link, server verify | done (Launches by URL, links) | Upi plugin done; UPI apps: device |
+| Killed while the UPI app is open → back on checkout, processing sheet at rest | done (restore, animateIn) | done; device |
+| Receipts: PDF, image viewer | done | done |
+| Push (APNs + FCM) | done (Phase 3, i.16–i.19; data-only background wakes 2026-11-21 / 22, not yet on a phone) | APNs entitlement done; `ZnApp.prepare` at launch (ZB 174c001, not yet in a store build) |
+| Crashlytics, Analytics | done | done (its plists) |
 
 ---
 
@@ -464,7 +473,7 @@ empty from 2026-11-22 (the last was prop 293, scrollCommand) and the notice was 
 | `tools/fetch-hermes-apple.ts`, `fetch-lottie-apple.ts`, `fetch-firebase-apple.ts` | done | |
 | `tools/fetch-test-server.ts` (the simulator reaches localhost) | done; `ZN_TEST_WS_TRACE=1` logs each WebSocket upgrade and open (2026-11-24: the WebSocket lab's 80 sockets now go to 127.0.0.1, since on the simulator each URLSession connection looks localhost up by itself and 80 lookups queued past the case's 8 s now and then) | |
 | Layout conformance screen (`layoutLab`) | done | |
-| UI tests (XCUITest, `ios/SamplePackage/ZnSampleUITests`, `bun run ios:ui-test [--device <sim>] [--only Class/test] [--dump <route>]`) | done (simulator, 2026-11-24): 62 tests in 12 classes by now (25 at first), by testID on ComponentsScreen, the Dev hub, A11yLab, RnPropsLab, InputScreen and Dynamic Type: switches, checkboxes, progress buttons, toasts, a sheet (open, grow, toast inside, drag closed), roles, labels, disabled, long press, hitSlop, typing in fields. 5.5 min cold (build, boot, run) on the iOS 26.3 simulator, two green cold runs in a row. They found and fixed: a toast out of the accessibility tree, a tappable Text read as two elements. A Switch inside a Pressable still gives the tap to the row (A53, open; the test checks today's behaviour). Known: a burst of keys into a field that JS reformats can lose one (InputTests/testBurst, an expected failure; cause found 2026-11-24, A93: a key that reaches the field within ~20 ms after ZnTextField's `f.text = value` is dropped, `replace(_:withText:)` kept every key; XCUITest's typeText didn't show it in 8 runs, a simulator HID burst lost a key in 3 of 3). Not in CI yet. Round 6 (2026-11-24): `--repeat n`, `TEST_RUNNER_ZN_APP_<NAME>` (the app's environment) and the sample's Debug `ZN_CONSOLE_FILE=1` (its console to tmp/zn-console.log) to read a failing run; ChecksLabTests (checksLab: motion text en-IN grouping, taps on 3D-turned views (a tap past the drawn far edge but inside the laid-out card doesn't press it; XCUITest's frame of a turned view is its drawn bounding box), a NativeView's box testID / pointerEvents, reorder sideways and inverted with mixed heights; 3 of 3 runs pass); checksLab also has e) snapping with and without a safe-area inset (checksSnapSafeLab / checksSnapLab), f) values JS puts in fields (for A93's fix), g) next in an inverted and a sideways List; smoke tests labelled. ImageViewerTests/testZoomKeepsThePage stays gated: a drag on a zoomed photo pages (the List's or Carousel's pan begins while the hub's claim is still possible), also by hand in motionMediaLab, and already on the round 5 runtime. | M |
+| UI tests (XCUITest, `ios/SamplePackage/ZnSampleUITests`, `bun run ios:ui-test [--device <sim>] [--only Class/test] [--dump <route>]`) | done (simulator, 2026-11-24): 25 tests by testID on ComponentsScreen, the Dev hub, A11yLab, RnPropsLab, InputScreen and Dynamic Type: switches, checkboxes, progress buttons, toasts, a sheet (open, grow, toast inside, drag closed), roles, labels, disabled, long press, hitSlop, typing in fields. 5.5 min cold (build, boot, run) on the iOS 26.3 simulator, two green cold runs in a row. They found and fixed: a toast out of the accessibility tree, a tappable Text read as two elements. A Switch inside a Pressable still gives the tap to the row (A53, open; the test checks today's behaviour). Known: a burst of keys into a field that JS reformats can lose one (InputTests/testBurst, an expected failure). Since then (rounds 5 and polish) the image viewer, touch lab, text polish, navigation race, edge swipe and toast keyboard classes: 58 test methods in 12 classes on 2026-11-24. In CI every night since 2026-11-24 (`.github/workflows/ios-ui-tests-nightly.yml`: macOS runner, the first iPhone simulator on the newest iOS, ci.yml's Hermes and package caches, the log and .xcresult kept a week when it fails); not on pull requests until it has been green for a while. | M |
 | Unit tests (readers, routes, animation, OTA, plugin rules) | done as Mac suites instead of an XCTest target (2026-11-21 to 11-24): `bun run tools/ios-unit-test.ts`, 25 suites, run by `bun run test` and CI (`ios/tests/README.md`) | L |
 | Golden `.zn.ui` / batch files read by both test suites (i.0) | missing | M |
 | Startup / frame / tabs measurements (`measure-*.ps1`, `measure-tabs.ts`) | partial: cold start on an iPhone 11 measured by hand (2026-11-19, `docs/milestones.md`); no Mac script yet | M × 3 |
@@ -493,15 +502,15 @@ Everything above marked done was checked on the simulator only. Waiting for a re
 
 ## 13. Android issues found by the port
 
-Full entries: `docs/android-issues-found-when-building-ios.md` (A1–A95 on 2026-11-24, most from A26 on still open; the
-table below keeps only the first ones). Next number: **A96**.
+Full entries: `docs/android-issues-found-when-building-ios.md` (A1–A108 on 2026-11-24, most from A26 on still open;
+the table below keeps only the first ones). Next number: **A109**.
 
 | # | Area | Status |
 |---|---|---|
 | A1 | OTA decision logic only in Kotlin | open (Phase 4a) |
 | A2 | Tools and docs assume Windows | open (core tests done) |
 | A3–A6 | Core test, fresh-clone build, Android-only core, FlowStore first write | fixed |
-| A7 | `app-events.test.ts` fails in the full run on the Mac | open |
+| A7 | `app-events.test.ts` fails in the full run on the Mac | fixed (4f4d6a1, 2026-11-19) |
 | A8 | Back gestures before JS answers skip `useBack` | fixed (Lava checked) |
 | A9 | `Platform.OS` always "android" | fixed |
 | A10 | Skeleton events before handlers exist | fixed on iOS; not seen on Android |
@@ -509,20 +518,23 @@ table below keeps only the first ones). Next number: **A96**.
 | A12 | zn dev reload draws a new screen from another template | open |
 | A13 | device-info iOS-only getters read native values | fixed |
 | A14 | location: iOS permission names in shared JS | fixed |
-| A15 | `Updates.check()` without `status` when OTA is off | fixed on Windows (lands with the zn-updates commit) |
+| A15 | `Updates.check()` without `status` when OTA is off | fixed 2026-11-09 (`ZnOta.kt`); not phone-checked |
+| A19 | `android/gradlew` not executable in git | fixed (8e35cdd, 2026-11-19) |
 | A22 | Android doesn't report shown / swipe / buttons for pushes FCM shows itself (iOS now does) | open, a gap |
 
 ---
 
 ## 14. Open questions
 
-1. ~~Google sign-in on iOS~~: decided 2026-11-09, build it now (ZeroBill's plugin, Google's iOS SDK).
+1. ~~Google sign-in on iOS~~: decided 2026-11-09, build it now; built in ZeroBill's plugin without the SDK (OAuth with
+   PKCE, ZB 859c3cb).
 2. **Apple sign-in**: likely not required (login is phone OTP; Google only for the review card). Pavan to confirm.
-3. **TestFlight**: now or later.
+3. ~~TestFlight~~: used for ZeroBill's 1.6.2 App Store builds (2026-11-10 to 11-19).
 4. **Push payloads**: alert payloads for anything the user must see (iOS silent pushes are not guaranteed). Server
    decision, before Phase 3 ends.
 5. ~~Secure screens~~: built 2026-11-21 (ZnSecure.swift): captures show the screen blank, the app switcher a plain cover; a phone check is still open.
-6. **StatusBar / NavigationBar elements**: build, or document as route-option only.
+6. ~~StatusBar / NavigationBar elements~~: built (2026-11-09, ZnSystemBars.swift, §5 row 32; they take no room in
+   their parent since the polish round).
 
 ---
 
