@@ -36,6 +36,8 @@ struct ZnCarouselView: View {
     @State private var values = ZnCarouselElement()
     /// The page (rounded) the pages are at while m.follow(v) is set (moved by it or by the user).
     @State private var followed: Int?
+    /// The Pressables around it: inside one, its pages take the swipe from them (ZnPressInner.swift).
+    @Environment(\.znPressAncestors) private var pressAncestors
 
     var body: some View {
         let refs = znShownRefs(ctx, t, inst, s.children)
@@ -69,6 +71,7 @@ struct ZnCarouselView: View {
                     .contentShape(Rectangle())
                     .background { if element != nil { ZnScrollFinder(driver: scroll) } }
                     .background { ZnTouchWatchProbe { lastTouch = Date() } }
+                    .background { if !pressAncestors.isEmpty { ZnInnerScrollMark(ancestors: pressAncestors) } }
                     // Where the pages' row is in the scroll view: its end at the scroll's end means the last page.
                     .onGeometryChange(for: Bool.self) { p in
                         let f = p.frame(in: .named(Self.space))

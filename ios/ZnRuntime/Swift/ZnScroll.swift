@@ -28,6 +28,8 @@ struct ZnScrollView<Content: View>: View {
     let content: Content
     /// Made once per Scroll (StateObject's autoclosure), not on each init of this view.
     @StateObject private var driver = ZnScrollDriver()
+    /// The Pressables around it: inside one, its scroll view takes the drag from them (ZnPressInner.swift).
+    @Environment(\.znPressAncestors) private var pressAncestors
 
     init(ctx: ZnContext, s: ZnNodeSpec, inst: ZnInstance, outer: ZnOuter, padding: EdgeInsets,
          @ViewBuilder content: () -> Content) {
@@ -50,6 +52,7 @@ struct ZnScrollView<Content: View>: View {
                     .background {
                         if s.usesScrollProbe { ZnScrollProbe(ctx: ctx, s: s, inst: inst, driver: driver) }
                     }
+                    .background { if !pressAncestors.isEmpty { ZnInnerScrollMark(ancestors: pressAncestors) } }
                     // keyboardDismissMode is this scroll's own: scrolls inside it keep SwiftUI's default.
                     .scrollDismissesKeyboard(.automatic)
             }

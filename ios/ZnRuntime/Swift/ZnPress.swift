@@ -7,7 +7,7 @@
 //
 // UIKit variant: a plain UIView over the content does the touch tracking (under it, SwiftUI's hosting view takes the
 // touches: checked 2026-11-08). A nested Pressable must win, as on Android: the outer view lets a touch through
-// when a smaller one lies under the finger. Not a UIControl: a scroll view never cancels touches in a UIControl
+// when one inside it shows under the finger (and to a scroll inside it: ZnPressInner.swift). Not a UIControl: a scroll view never cancels touches in a UIControl
 // (touchesShouldCancel(in:) is false for controls, and SwiftUI's ScrollView doesn't change that), so a slow drag that
 // started on a button didn't scroll the page (found 2026-11-08 in the RN props lab). A plain view is cancelled when
 // the scroll starts (touchesCancelled → onPressOut(true)), as on Android.
@@ -17,9 +17,37 @@ import UIKit
 
 @Observable
 final class ZnPressState {
+    /// The press look (ripple, highlight, pressScale, pressOpacity): on at the press, off at its end but shown at
+    /// least [minShown].
     var pressed = false
     /// Where the finger went down, in the Pressable's own space (the ripple starts there).
     var touch: CGPoint?
+    @ObservationIgnored private var downAt: CFTimeInterval = 0
+    @ObservationIgnored private var presses = 0
+
+    /// How long a press shows at least. Inside a Scroll, List or Carousel UIKit holds a quick tap's touch until the
+    /// lift (the scroll's content delay), then hands over its start and end at once: `pressed` went true and back to
+    /// false before SwiftUI drew, so the tap showed no feedback at all, while Android's (no delay) always shows it.
+    /// The delay itself stays (a scroll that starts on a Pressable doesn't flash its ripple, as UIKit's buttons).
+    static let minShown: CFTimeInterval = 0.1
+
+    func press(at p: CGPoint) {
+        presses += 1
+        downAt = CACurrentMediaTime()
+        touch = p
+        pressed = true
+    }
+
+    func release() {
+        let left = Self.minShown - (CACurrentMediaTime() - downAt)
+        guard left > 0 else { pressed = false; return }
+        let n = presses
+        DispatchQueue.main.asyncAfter(deadline: .now() + left) { [weak self] in
+            // Not if a new press began since.
+            guard let self, self.presses == n else { return }
+            self.pressed = false
+        }
+    }
 }
 
 /// Pressable's press feedback, as Android's ZnRipple / ZnHighlight (ZnAnimation.kt), drawn over the content and inside
@@ -53,7 +81,7 @@ struct ZnPressFeedback: View {
                 let r = s.rippleRadius ?? (s.rippleBorderless ? max(size.width, size.height) / 2 : hypot(size.width, size.height) / 2)
                 let alpha = s.rippleOpacity ?? (s.rippleColor == nil ? 0.12 : 0.24)
                 ZnRippleCircle(start: start, radius: r, scale: grown ? 1 : 0.2, shown: shown ? 1 : 0)
-                    .fill(s.rippleColor ?? .black)
+                    .fill(znRippleColor(s.rippleColor))
                     .opacity(shown ? alpha : 0)
             }
             .modifier(ZnRippleClip(clip: !s.rippleBorderless, shape: shape))
@@ -74,6 +102,13 @@ struct ZnPressFeedback: View {
             }
         }
     }
+}
+
+/// The ripple's colour: [c]'s own alpha left out, as Android's ripple (color.copy(alpha = the ripple's alpha)). A
+/// rippleColor such as rgba(61,38,237,0.1) at the default 24 % was 2.4 % on iOS, almost invisible.
+func znRippleColor(_ c: Color?) -> Color {
+    guard let c else { return .black }
+    return Color(uiColor: UIColor(c).withAlphaComponent(1))
 }
 
 /// The ripple's circle. No path at all while it isn't shown (once its fade has ended): SwiftUI counts a shape's path
@@ -175,9 +210,10 @@ struct ZnTouchTarget: UIViewRepresentable {
     /// How far the touch view reaches past the node (hitSlop grown to the 44 pt minimum: ZnTouchRules.reach), when the
     /// caller sized it so; else the node's hitSlop.
     var reach: ZnTouchReach? = nil
-    /// This Pressable's id and the Pressables holding it (ZnPressLink ids; see znPressAncestors).
+    /// This Pressable's id and the Pressables holding it (ZnPressLink ids; see znPressAncestors). Without ancestors
+    /// given (a tappable Text), the Pressables around it in the environment.
     var own: ObjectIdentifier? = nil
-    var ancestors: [ObjectIdentifier] = []
+    var ancestors: [ObjectIdentifier]? = nil
 
     func makeUIView(context: Context) -> ZnTouchControl {
         let c = ZnTouchControl()
@@ -195,7 +231,7 @@ struct ZnTouchTarget: UIViewRepresentable {
         c.slop = UIEdgeInsets(top: slop.top, left: rtl ? slop.end : slop.start, bottom: slop.bottom, right: rtl ? slop.start : slop.end)
         c.isEnabled = !disabled
         c.own = own
-        c.ancestors = Set(ancestors)
+        c.ancestors = Set(ancestors ?? context.environment.znPressAncestors)
         c.haptic = s.haptic
         c.repeatDelay = s.onPressRepeat != 0 ? s.repeatDelayMs / 1000 : nil
         c.repeatInterval = s.repeatIntervalMs / 1000
@@ -205,10 +241,9 @@ struct ZnTouchTarget: UIViewRepresentable {
         c.onEvent = { [weak c] kind, payload in
             switch kind {
             case .down:
-                state.touch = c?.lastDown
-                state.pressed = true
+                state.press(at: c?.lastDown ?? .zero)
                 if s.onPressIn != 0 { ctx.send(inst.id, s.onPressIn, .none) }
-            case .out: state.pressed = false; if s.onPressOut != 0 { ctx.send(inst.id, s.onPressOut, payload) }
+            case .out: state.release(); if s.onPressOut != 0 { ctx.send(inst.id, s.onPressOut, payload) }
             case .tap:
                 if s.onPress != 0 { ctx.send(inst.id, s.onPress, .none) }
             case .long: ctx.send(inst.id, s.onLongPress, .none)
@@ -266,14 +301,19 @@ final class ZnTouchControl: UIView {
         for other in ZnTouchControl.live.allObjects
         where other !== self && other.window === window && !other.isHidden && other.screenController === screen {
             let q = other.convert(p, from: window)
+            // Only where it shows: not clipped away by a Scroll or List, not in a hidden or reused cell.
+            guard other.bounds.contains(q), other.reaches(p, in: window) else { continue }
             // Under the finger: in its own space, so a turned one's corners don't count.
             if other.core.contains(q) {
-                // An inner Pressable takes the touch; in our slop, any Pressable under the finger does, but not one
-                // that holds this one.
-                if inSlop ? !holds(other) : other.windowArea(other.core, window) < area {
+                // On this Pressable itself: a Pressable inside it takes the touch, as Compose's hit test (children
+                // first). Never one that isn't inside it: a sibling drawn under it (a button under an absolute bar or
+                // a tap-outside backdrop) or a Scroll's chip clipped out of view under a fixed Pay button. "Smaller"
+                // stood for "inside" until 2026-11-24, so those took the tap or killed it. In our slop: any Pressable
+                // under the finger does, but not one that holds this one.
+                if inSlop ? !holds(other) : other.holds(self) {
                     return nil
                 }
-            } else if other.bounds.contains(q), other.reaches(p, in: window) {
+            } else {
                 let theirs = other.windowRect(other.core, window)
                 // On this Pressable itself, in the grown area of a small one inside it (a card's button): the inner one
                 // takes it, as on Android. In our slop with theirs too: the nearer one takes it.
@@ -288,18 +328,21 @@ final class ZnTouchControl: UIView {
         where box.controller === screen && (inSlop || box.frame.width * box.frame.height < area) {
             return nil
         }
+        // A scroll view that can scroll, or a plugin's view that takes touches, inside this Pressable under the finger
+        // (a chip rail or a Carousel in a card): it gets the touch, as on Android. The scroll still presses this one
+        // through its ZnPressForward (a tap on the rail presses the card; a swipe scrolls and cancels the press).
+        if let own, let (v, native) = ZnPressInner.taker(at: p, in: window, inside: own, event: event) {
+            if !native, let sv = v as? UIScrollView { ZnPressForward.on(sv).arm(self) }
+            return nil
+        }
         return hit
     }
 
     /// Would a touch at [p] (window space) reach this view? Each view above it must take the point too: a scroll view,
     /// a Sheet or the screen clips the grown area, so a Pressable scrolled out of sight never wins from under its edge.
     func reaches(_ p: CGPoint, in window: UIWindow) -> Bool {
-        var v = superview
-        while let s = v, s !== window {
-            if s.isHidden || !s.isUserInteractionEnabled || !s.point(inside: s.convert(p, from: window), with: nil) { return false }
-            v = s.superview
-        }
-        return true
+        guard let superview else { return false }
+        return znReaches(superview, p, in: window)
     }
 
     /// [r]'s bounding box as drawn in [window] (a turned rect's corners included).

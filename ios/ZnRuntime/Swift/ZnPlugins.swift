@@ -250,6 +250,8 @@ struct ZnNativeViewNode: UIViewRepresentable {
         // that changes (the plugin may turn touches off itself). testID is the view's identifier for UI tests; the
         // plugin's view does its own VoiceOver (ZnA11y only hides it).
         let off = context.environment.znTouchOff
+        // Inside a Pressable: a plugin view that takes touches keeps them (ZnPressInner.swift).
+        ZnPressInner.note(v, ancestors: context.environment.znPressAncestors, native: true)
         if c.touchOff != off {
             c.touchOff = off
             v.isUserInteractionEnabled = !off

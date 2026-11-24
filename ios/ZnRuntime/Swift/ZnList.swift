@@ -106,6 +106,8 @@ struct ZnHostedEnv: Equatable {
     var gestureDepth = 0
     /// The list is reorderable now: a long press on a row picks it up, so the row's onLongPress is off (decision 7).
     var reorderRow = false
+    /// The Pressables around the list: a row's Pressable is inside them (ZnTouchControl.hitTest).
+    var pressAncestors: [ObjectIdentifier] = []
 
     init() {}
 
@@ -114,6 +116,7 @@ struct ZnHostedEnv: Equatable {
         inHiddenTab = e.znInHiddenTab
         touchOff = e.znTouchOff
         gestureDepth = e.znGestureDepth
+        pressAncestors = e.znPressAncestors
     }
 }
 
@@ -136,6 +139,7 @@ struct ZnHostedEnvView<Content: View>: View {
             .environment(\.znTouchOff, e.touchOff)
             .environment(\.znGestureDepth, e.gestureDepth)
             .environment(\.znReorderRow, e.reorderRow)
+            .environment(\.znPressAncestors, e.pressAncestors)
     }
 }
 
@@ -1078,6 +1082,8 @@ struct ZnCollectionList: UIViewRepresentable {
         // Drag to reorder: a plain column or row, no pinned rows (they can't move), as Android's ZnReorder.
         c.canReorder = s.reorderable && sticky.isEmpty && cols == 1
         if cv.dragInteractionEnabled != c.canReorder { cv.dragInteractionEnabled = c.canReorder }
+        // Inside a Pressable: the list takes the drag from it (ZnPressInner.swift).
+        ZnPressInner.note(cv, ancestors: context.environment.znPressAncestors, native: false)
         // The environment the cells need (a UIHostingConfiguration cell doesn't inherit it).
         var env = ZnHostedEnv(context.environment)
         // The header, footer and empty item can't be picked up: they keep their onLongPress (only rows lose it).
