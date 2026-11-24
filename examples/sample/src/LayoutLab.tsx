@@ -125,6 +125,51 @@ const EXPECT: Record<string, Frame> = {
   // space-between with a Modal and a NavigationBar after; a wrap Row with a StatusBar between two 95 wide boxes.
   c49a: [0, 0, 200, 20], c49b: [0, 30, 200, 20], c49c: [0, 0, 40, 20], c49d: [160, 0, 40, 20],
   c49e: [0, 0, 200, 20], c49f: [0, 40, 200, 20], c49g: [0, 0, 95, 10], c49h: [105, 0, 95, 10],
+  // 50. A flex child's min stays inside its share (Android's znSizeInConstraints): flex 1 + minHeight 80 in a 100 tall
+  // Column above a 40 tall footer gets 60 and the footer stays at 60; the same in a Row (minWidth 180 next to 50).
+  // iOS drew the child at its min, over the footer, until 2026-11-24.
+  c50a: [0, 0, 200, 60], c50b: [0, 60, 200, 40], c50c: [0, 0, 150, 20], c50d: [150, 0, 50, 20],
+}
+
+// 51. Content bigger than its box with justifyContent center / flex-end (checked apart from EXPECT: the frames differ by
+// design). Android squeezes the child into the box (Compose's constraints); iOS keeps its size and, as Yoga, centres
+// it over both ends, or ends it at the box's end. Either way its middle (or its end) is the box's, which is what a
+// user sees: a 28 icon in a 24 circle. iOS pinned it to the start until 2026-11-24.
+// "layout-overflow <passed>/<total> pass", and "layout-overflow FAIL <id> ..." for each miss.
+const OVERFLOW: Record<string, { box: [w: number, h: number]; x: "centre" | "end" | "start"; y: "centre" | "end" | "start" }> = {
+  c51a: { box: [24, 24], x: "centre", y: "centre" },  // Row, justify center, align center: 28 x 28 in 24 x 24
+  c51b: { box: [40, 24], x: "start", y: "end" },  // Column, justify flex-end: 40 x 30 in 40 x 24
+  c51c: { box: [24, 40], x: "end", y: "start" },  // Row, justify flex-end: 30 x 40 in 24 x 40
+}
+const overflowGot = new Map<string, Frame>()
+const overflowSummary = signal("measuring…")
+let overflowTimer: ReturnType<typeof setTimeout> | null = null
+
+function checkOverflow(): void {
+  const ids = Object.keys(OVERFLOW)
+  let passed = 0
+  const at = (kind: "centre" | "end" | "start", pos: number, size: number) =>
+    kind === "centre" ? pos + size / 2 : kind === "end" ? pos + size : pos
+  for (const id of ids) {
+    const e = OVERFLOW[id]!
+    const g = overflowGot.get(id)
+    const ok = g !== undefined &&
+      Math.abs(at(e.x, g[0], g[2]) - at(e.x, 0, e.box[0])) <= TOLERANCE &&
+      Math.abs(at(e.y, g[1], g[3]) - at(e.y, 0, e.box[1])) <= TOLERANCE
+    if (ok) passed++
+    else console.info(`layout-overflow FAIL ${id} box ${e.box.join("x")} ${e.x}/${e.y} got ${g ? g.map((v) => Math.round(v * 100) / 100).join(",") : "nothing"}`)
+  }
+  overflowSummary.set(`${passed}/${ids.length} pass`)
+  console.info(`layout-overflow ${passed}/${ids.length} pass`)
+}
+
+function LO(id: string) {
+  return (e: { nativeEvent: { layout: { x: number; y: number; width: number; height: number } } }) => {
+    const l = e.nativeEvent.layout
+    overflowGot.set(id, [l.x, l.y, l.width, l.height])
+    if (overflowTimer) clearTimeout(overflowTimer)
+    overflowTimer = setTimeout(checkOverflow, 600)
+  }
 }
 
 const TOLERANCE = 1
@@ -538,6 +583,32 @@ export function LayoutLabScreen() {
             <Box testID="c49g" onLayout={L("c49g")} style={{ width: 95, height: 10, backgroundColor: A }} />
             <StatusBar />
             <Box testID="c49h" onLayout={L("c49h")} style={{ width: 95, height: 10, backgroundColor: B }} />
+          </Row>
+        </Case>
+        <Case title="50. A flex child's min stays in its share">
+          <Column style={{ width: 200, height: 100, backgroundColor: BG }}>
+            <Box testID="c50a" onLayout={L("c50a")} style={{ flex: 1, minHeight: 80, backgroundColor: A }} />
+            <Box testID="c50b" onLayout={L("c50b")} style={{ height: 40, backgroundColor: B }} />
+          </Column>
+          <Row style={{ width: 200, height: 20, backgroundColor: BG }}>
+            <Box testID="c50c" onLayout={L("c50c")} style={{ flex: 1, minWidth: 180, height: 20, backgroundColor: A }} />
+            <Box testID="c50d" onLayout={L("c50d")} style={{ width: 50, height: 20, backgroundColor: B }} />
+          </Row>
+        </Case>
+        <Case title="51. Content bigger than its box: centred / at the end">
+          <Text testID="layout-overflow-summary" fontSize={12} color={c.ink}>
+            {`Overflow: ${overflowSummary()}`}
+          </Text>
+          <Row gap={24} alignItems="center" style={{ padding: 10 }}>
+            <Row justifyContent="center" alignItems="center" style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: BG }}>
+              <Box testID="c51a" onLayout={LO("c51a")} style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 2, borderColor: B }} />
+            </Row>
+            <Column justifyContent="flex-end" style={{ width: 40, height: 24, backgroundColor: BG }}>
+              <Box testID="c51b" onLayout={LO("c51b")} style={{ width: 40, height: 30, borderWidth: 2, borderColor: B }} />
+            </Column>
+            <Row justifyContent="flex-end" style={{ width: 24, height: 40, backgroundColor: BG }}>
+              <Box testID="c51c" onLayout={LO("c51c")} style={{ width: 30, height: 40, borderWidth: 2, borderColor: B }} />
+            </Row>
           </Row>
         </Case>
       </Column>
