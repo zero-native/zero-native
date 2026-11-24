@@ -176,6 +176,7 @@ struct ZnSheetPresenter: UIViewControllerRepresentable {
         coordinator.onDetent = { _ in }
         guard let sheet = coordinator.sheet else { return }
         coordinator.sheet = nil
+        sheet.nodeGone = true
         ZnPopups.shared.close(sheet, animated: Self.leavesAnimated, why: "its node left the screen")
     }
 
@@ -228,6 +229,8 @@ final class ZnSheetLayer: UIViewController, UIGestureRecognizerDelegate {
     private var dismissing = false
     /// JS closed it while the user's close slid it down: it leaves the box when that slide ends.
     private var leaveWhenDown: (() -> Void)?
+    /// It closes because its node left the tree (a {cond && <Sheet/>} turned false), not because JS set `visible` false.
+    var nodeGone = false
     private var dragging = false
     private var moved = false
     private var open = false
@@ -381,7 +384,8 @@ final class ZnSheetLayer: UIViewController, UIGestureRecognizerDelegate {
         guard let v = tracked else { return stopProgress() }
         let shown = v.layer.presentation()?.frame.minY
         if let shown, shown != staleY { trackedFrom = nil; staleY = nil }  // the animation is drawn now
-        guard let y = trackedFrom ?? shown.map({ $0 + trackedShift }) else { return }
+        // (Not drawn yet and no start given: its frame, as before; the stop check below still runs.)
+        let y = trackedFrom ?? ((shown ?? v.frame.minY) + trackedShift)
         #if DEBUG
         shownY = y
         #endif
@@ -698,7 +702,10 @@ extension ZnSheetLayer: ZnPopupLayer {
         // picture in its place started again from standing still, a frame or two late (the snapshot and the drop on
         // the main thread): the sheet and m.progress stopped and started again in a flick close (2026-11-24 iPhone
         // check).
+        // Its node left the tree instead (the onDismiss set a {cond && <Sheet/>} false): the content's node is gone, so
+        // a picture of the content takes its place in the card, and the card's own slide still goes on.
         if animated, dismissing, isViewLoaded, !(card.layer.animationKeys()?.isEmpty ?? true) {
+            if nodeGone { freezeContent() }
             leaveWhenDown = { [weak self, weak box] in
                 guard let self else { return }
                 self.progressGone()
@@ -735,6 +742,24 @@ extension ZnSheetLayer: ZnPopupLayer {
         }
         progressGone()
         box.drop(self)
+    }
+}
+
+extension ZnSheetLayer {
+    /// A picture of the content in its place in the card, and the content (its SwiftUI tree over the node that left)
+    /// goes: what slides down no longer draws a node that is gone.
+    fileprivate func freezeContent() {
+        guard let c = content, c.parent === self else { return }
+        let pic = c.view.snapshotView(afterScreenUpdates: false)
+        if let pic {
+            pic.frame = c.view.frame
+            pic.isUserInteractionEnabled = false
+            c.view.superview?.insertSubview(pic, aboveSubview: c.view)
+        }
+        c.willMove(toParent: nil)
+        c.view.removeFromSuperview()
+        c.removeFromParent()
+        print("zn t=\(ZnDebug.ms()) sheet: its node left in the user's close: \(pic == nil ? "no picture of the content (none drawn)" : "a picture of the content slides down in the card")")
     }
 }
 
