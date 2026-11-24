@@ -9,6 +9,8 @@
 //   bun run tools/ios-ui-test.ts --derived-data <dir>         the build folder (default ios/build/ui-test)
 //   bun run tools/ios-ui-test.ts --dump a11yLab [--ready id]  print a route's accessibility tree (to write a test)
 //   bun run tools/ios-ui-test.ts --keep-booted                leave a simulator this run booted on afterwards
+//   bun run tools/ios-ui-test.ts --only X/testY --repeat 5    run the tests 5 times (each run counts; to check a flaky one)
+//   TEST_RUNNER_ZN_APP_<NAME>=v bun run tools/ios-ui-test.ts   the app gets <NAME>=v in its environment (ZnUITestCase)
 import { existsSync, rmSync, writeFileSync } from "node:fs"
 import { join, resolve } from "node:path"
 
@@ -132,6 +134,7 @@ async function main() {
     const p = Bun.spawn(
       ["xcodebuild", "test-without-building", ...common, ...settings, "-resultBundlePath", result,
         "-parallel-testing-enabled", "NO", "-test-timeouts-enabled", "YES", "-maximum-test-execution-time-allowance", "120",
+        ...(opt("--repeat") ? ["-test-iterations", opt("--repeat")!] : []),
         ...only],
       { cwd: root, stdout: "pipe", stderr: "pipe", env: { ...process.env, ...dumpEnv } },
     )

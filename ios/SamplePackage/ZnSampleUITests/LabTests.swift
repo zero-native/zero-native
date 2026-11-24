@@ -116,9 +116,12 @@ final class InputTests: ZnUITestCase {
         waitValue(phone, "987654")
     }
 
-    /// Seven keys in one burst (typeText): every one should count. Known iOS gap (2026-11-24): now and then one is
-    /// lost ("1,23,456"), a key typed while JS's reformat of the one before is on its way. Not strict: it passes
-    /// either way and reports the loss as an expected failure, until the field keeps every key.
+    /// Seven keys in one burst (typeText): every one should count. Known iOS gap (A93): now and then a key is lost
+    /// ("1,23,456"). Cause (found 2026-11-24, app log): ZnTextField sets `f.text = value` for JS's reformat, and a key
+    /// that reaches the field within ~20 ms after that set never arrives (no editingChanged, not in the text): UIKit
+    /// drops keys queued while the text is replaced from outside the input system. Applying JS's value with
+    /// `replace(_:withText:)` (UITextInput) kept every key in the same runs. Not strict until that fix lands: it passes
+    /// either way and reports the loss as an expected failure. With the fix, make it strict (drop XCTExpectFailure).
     func testBurst() {
         let amount = openAmount()
         amount.typeText("1234567")

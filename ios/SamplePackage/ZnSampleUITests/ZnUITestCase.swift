@@ -31,6 +31,11 @@ class ZnUITestCase: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["ZN_ROUTE"] = route
         if let params { app.launchEnvironment["ZN_PARAMS"] = params }
+        // TEST_RUNNER_ZN_APP_<NAME>=v (the runner's environment; xcodebuild hands it to the tests as ZN_APP_<NAME>):
+        // <NAME>=v for the app, e.g. TEST_RUNNER_ZN_APP_ZN_MOTION_ENGINE=0.
+        for (k, v) in ProcessInfo.processInfo.environment where k.hasPrefix("ZN_APP_") {
+            app.launchEnvironment[String(k.dropFirst("ZN_APP_".count))] = v
+        }
         app.launchArguments += arguments
         app.launch()
         self.app = app
