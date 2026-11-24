@@ -208,6 +208,10 @@ final class ZnToast: ZnModuleBase, @unchecked Sendable {
         showing = pill
         self.bottom = bottom
         self.window = window
+        // The shadow's shape from the laid-out pill (its size doesn't change after), so the fades and keyboard moves
+        // don't work it out from the layer's pixels every frame.
+        pill.superview?.layoutIfNeeded()
+        pill.layer.shadowPath = UIBezierPath(roundedRect: pill.bounds, cornerRadius: 20).cgPath
         pill.alpha = 0
         // The fade-out starts after the fade-in: started together, UIKit sets alpha 0 at once and the toast never shows.
         // It is started [seconds] later, not given as the animation's delay: a delayed animation sets alpha 0 at once,

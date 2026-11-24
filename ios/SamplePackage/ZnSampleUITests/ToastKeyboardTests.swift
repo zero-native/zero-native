@@ -4,7 +4,7 @@ import XCTest
 /// frame). Before 2026-11-24 its place was fixed when it was shown: a keyboard opening after it covered it, and one
 /// closing left it floating a keyboard's height up the screen. Navigation race lab's toast row (NavRaceLab.tsx).
 final class ToastKeyboardTests: ZnUITestCase {
-    func testToastFollowsKeyboard() {
+    func testToastFollowsKeyboard() throws {
         launch("navRaceLab", until: { self.text("Navigation race") })
         let field = app.textFields["A field for the keyboard"].firstMatch
         let keyboard = app.keyboards.firstMatch
@@ -16,7 +16,7 @@ final class ToastKeyboardTests: ZnUITestCase {
         field.tap()
         guard appears(keyboard, timeout: 3) else {
             // A hardware keyboard on the simulator (I/O > Keyboard > Connect Hardware Keyboard): nothing to follow.
-            return print("no on-screen keyboard; skipped")
+            throw XCTSkip("no on-screen keyboard")
         }
         eventually("the toast sits above the keyboard (toast \(toast.frame), keyboard \(keyboard.frame))") {
             toast.exists && toast.frame.maxY <= keyboard.frame.minY && toast.frame.minY < low.minY - 100
