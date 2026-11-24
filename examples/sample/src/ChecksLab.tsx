@@ -13,6 +13,7 @@
 //      inset.
 //   f) Values JS puts in fields: a multiline field JS regroups, a maxLength 4 field JS fills with 6 digits, a read-only
 //      field JS changes (what A93's fix must keep).
+//   g) returnKeyType "next" in an inverted List and in a sideways List (Android goes by row order).
 import { Box, Column, List, NativeView, Pressable, Row, Scroll, Stack, Text, TextField } from "@zeronative/ui"
 import { signal, useMotion } from "@zeronative/core"
 import { c } from "./tokens"
@@ -43,6 +44,7 @@ export function ChecksLabScreen() {
   const turnedTaps = signal(0)
   const tiltTaps = signal(0)
   const grouped = signal("")
+  const nextFocus = signal("none")
   const max4 = signal("")
   const roText = signal("read-only 0")
   let roCount = 0
@@ -194,6 +196,34 @@ export function ChecksLabScreen() {
             <Text fontSize={12} fontWeight={600} color={c.ink}>Set 123456 and the read-only text</Text>
           </Pressable>
         </Row>
+      </ChkSection>
+
+      <ChkSection title="g) Next in an inverted and a sideways List" note="Focus n1, press Return (next): Android's focus search goes by row order, so n2 (above n1 in the inverted list) and then n3; in the sideways list s1 → s2 → s3 (to the right).">
+        <Text testID="next-focus" fontSize={12} color={c.ink}>{`focus ${nextFocus()}`}</Text>
+        <List
+          testID="next-inverted"
+          data={["n1", "n2", "n3", "n4"]}
+          key={(t) => t}
+          inverted
+          style={{ height: 200, borderRadius: 10, borderWidth: 1, borderColor: c.border }}
+          row={(t) => (
+            <Box style={{ paddingHorizontal: 8, paddingVertical: 3 }}>
+              <TextField testID="next-row" placeholder={`${t} (next)`} returnKeyType="next" onFocus={() => { nextFocus.set(t); console.log(`checks-lab focus ${t}`) }} style={{ height: 40, borderWidth: 1, borderColor: c.border, borderRadius: 8, paddingHorizontal: 8 }} />
+            </Box>
+          )}
+        />
+        <List
+          testID="next-sideways"
+          data={["s1", "s2", "s3", "s4"]}
+          key={(t) => t}
+          horizontal
+          style={{ height: 52 }}
+          row={(t) => (
+            <Box style={{ width: 120, paddingEnd: 8 }}>
+              <TextField testID="next-row" placeholder={`${t} (next)`} returnKeyType="next" onFocus={() => { nextFocus.set(t); console.log(`checks-lab focus ${t}`) }} style={{ height: 40, borderWidth: 1, borderColor: c.border, borderRadius: 8, paddingHorizontal: 8 }} />
+            </Box>
+          )}
+        />
       </ChkSection>
     </Scroll>
   )
