@@ -96,6 +96,30 @@ export function DevScreen() {
           <Entry title="Motion: extension" step="M.1" detail="Tilt card, dot moved by a plugin, wobble curve, plugin view drawn from a motion value, frame counter, drag with a manual start" onOpen={() => nav.push("motionExtensionLab")} />
           <Entry title="Motion: core" step="M.1" detail="Commands and their promises, timeline, formulas, env, 3D and blur, corners, element values, plugin values and curves, tilt, animateLayout, useFrame; no gestures" onOpen={() => nav.push("motionCoreLab")} />
           <Entry title="Updates (OTA)" step="4.5" detail="What runs now and next, the last check, check now" onOpen={() => nav.push("updates")} />
+          {/* Labs added by the iOS gap rounds (registry 24, 2026-11-21 to 11-24), and older ones that had only a link. */}
+          <Text fontSize={13} fontWeight={700} color={c.muted} style={{ marginTop: 12 }}>
+            More labs
+          </Text>
+          <Entry title="Layout conformance" step="9.5" detail="One case per flex rule, each frame checked by onLayout; logs layout-conformance <passed>/<total>" onOpen={() => nav.push("layoutLab")} />
+          <Entry title="Lifecycle" step="r2b" detail="Dimensions and PixelRatio on rotation and text size, motion env, the keyboard frame, app state" onOpen={() => nav.push("lifecycleLab")} />
+          <Entry title="Motion engine checks" step="M.1" detail="Commands, promises, derive / map / follow, useFrame: pass / fail from JS (runs on open)" onOpen={() => nav.push("motionEngineLab", { run: true })} />
+          <Entry title="Motion: bindings" step="M.1" detail="One timeline drives slide, flip, blur, corners, a fill bar and a width, with no JS per frame" onOpen={() => nav.push("motionBindingsLab")} />
+          <Entry title="Gestures" step="r3" detail="A 3D-turned card's taps, double tap before tap, rotate, fling, a press on a draggable card" onOpen={() => nav.push("gestureLab")} />
+          <Entry title="Element values" step="r3" detail="useElementMotion: box, pressed, Scroll / List / Carousel values, follow; a Pressable drawn away from its place" onOpen={() => nav.push("elementValuesLab")} />
+          <Entry title="Impressions" step="r3" detail="Hidden tabs, clipped boxes, minMs, rows and a rail; logs imp-lab +keys" onOpen={() => nav.push("impressionsLab")} />
+          <Entry title="Lists 2" step="r4" detail="Item animation, drag to reorder, snap and scroll events, pinned rows, an inverted chat" onOpen={() => nav.push("listsTwoLab")} />
+          <Entry title="Shared elements" step="r4" detail="sharedTag over push, modal, fade, secure, see-through and none routes; the edge swipe scrubs the flight" onOpen={() => nav.push("sharedLab")} />
+          <Entry title="Push at start" step="r4" detail="A start screen that pushes the shared lab while it is built (open it with --route navStartLab for the real start)" onOpen={() => nav.push("navStartLab", { then: "sharedLab" })} />
+          <Entry title="Navigation race" step="polish" detail="A push or back while a slide or a back swipe is under way; logs nav-race <ok>/<all>" onOpen={() => nav.push("navRaceLab")} />
+          <Entry title="Touch" step="polish" detail="Who takes a tap where Pressables, scrolls and overlays meet" onOpen={() => nav.push("touchLab")} />
+          <Entry title="Paint" step="polish" detail="A rounded Pressable's clip, opacity as one picture, elevation without a background" onOpen={() => nav.push("paintLab")} />
+          <Entry title="Text polish" step="polish" detail="Multiline maxHeight, Next between fields, a Text in a tall box, field letterSpacing, numberOfLines 0" onOpen={() => nav.push("textPolishLab")} />
+          <Entry title="Sheets that leave" step="L.1" detail="Sheets and Modals whose node leaves the tree while open, and layers over one another" onOpen={() => nav.push("sheetLeaveLab")} />
+          <Entry title="Image viewer page" step="r4" detail="One imageviewer.page moved by buttons: loading, events, the zoom's move, sharp parts" onOpen={() => nav.push("imageViewerPageLab")} />
+          <Entry title="Call pool" step="ZB" detail="Native calls that hold the pool while fetch goes on; needs tools/fetch-test-server.ts" onOpen={() => nav.push("callPool")} />
+          <Entry title="Net loop" step="ZB" detail="A fetch every 3 s to a public host and the local server, for network changes" onOpen={() => nav.push("netLoop")} />
+          <Entry title="Images in parallel" step="ZB" detail="Slow pictures in a column, a rail and banners load side by side; needs the test server" onOpen={() => nav.push("imagePar")} />
+          <Entry title="Images in a List" step="ZB" detail="60 rows of slow pictures while scrolling; needs the test server" onOpen={() => nav.push("imageList")} />
         </Column>
       </Scroll>
     </Column>
