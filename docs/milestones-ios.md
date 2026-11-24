@@ -87,7 +87,7 @@ bun run tools/ios-sample.ts --route rnPropsLab --params '{}'
 - Simulator "zn iPhone 16" (iOS 18.0); the gap rounds used their own simulators. Device builds exist (Pavan's iPhone 11:
   FCM pushes 2026-11-11, cold start and App Store size 2026-11-19, `docs/milestones.md`); ask Pavan before any
   device build or signing.
-- Tests: `bun run test` (1666 pass on 2026-11-24; the `draw` Mac suite hit its 180 s timeout once under load and passes alone, 319 / 319), `bun run tools/ios-unit-test.ts` (the Mac unit suites,
+- Tests: `bun run test` (1675 pass on 2026-11-24, after the polish round; the `draw` Mac suite hit its 180 s timeout once under load and passes alone, 319 / 319), `bun run tools/ios-unit-test.ts` (the Mac unit suites,
   `ios/tests/README.md`), `bun run ios:ui-test` (XCUITest on a simulator), `bun run tools/run-core-tests-apple.ts
   --sim` (C++ core), LayoutLab route `layoutLab` (97 / 97 on 2026-11-09). `--device <name>` picks a simulator when two are booted.
 - Tips (simulator taps, screenshots, swipes): `docs/ios-handoff.md`.
