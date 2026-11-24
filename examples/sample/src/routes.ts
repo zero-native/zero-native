@@ -75,6 +75,7 @@ import { ElementValuesLabScreen } from "./ElementValuesLab"
 import { ListsTwoLabScreen } from "./ListsTwoLab"
 import { NavStartLabScreen, SharedLabDetailScreen, SharedLabScreen, SharedLabSeeThroughScreen } from "./SharedLab"
 import { PaintLabScreen } from "./PaintLab"
+import { TextPolishLabScreen } from "./TextPolishLab"
 
 export const routes = defineRoutes({
   home: { path: "/", screen: HomeScreen },
@@ -200,6 +201,9 @@ export const routes = defineRoutes({
   touchLab: { path: "/dev/touch", screen: TouchLabScreen, deepLink: true },
   // Paint parity: a rounded Pressable's clip, opacity as one picture, elevation without a background. Last, as above.
   paintLab: { path: "/dev/paint", screen: PaintLabScreen, deepLink: true },
+  // Text and field polish (TextPolishLab.tsx): multiline maxHeight, returnKeyType next, a Text in a tall box, a field's
+  // letterSpacing, numberOfLines 0, fields on a hidden tab or clipped by a Scroll. Last, as above.
+  textPolishLab: { path: "/dev/text-polish", screen: TextPolishLabScreen, deepLink: true },
 })
 
 // Typed navigation: nav.push("amount", { merchantId }) is checked against these routes.
