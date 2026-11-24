@@ -154,7 +154,7 @@ final class ImageViewerTests: ZnUITestCase {
         XCTAssertFalse(app.buttons["One photo (no count)"].exists, "a lab button under the viewer is still found")
         close.tap()
         gone()
-        status("strip closed on 2")
+        status("strip closed on 1")
         XCTAssertTrue(appears(thumb(1), timeout: 5), "the lab's thumbnail is not read again after the viewer closed")
     }
 
