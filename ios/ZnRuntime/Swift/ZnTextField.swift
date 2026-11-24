@@ -252,7 +252,7 @@ enum ZnFieldFocus {
         let order = ZnFieldOrder(window: window, rtl: field.effectiveUserInterfaceLayoutDirection == .rightToLeft)
         guard let me = order.key(field) else { return false }
         let after = views.compactMap { (key, w) -> (UIView, [ZnFieldOrder.Step], Bool)? in
-            guard let v = w.view, v !== field, v.window === window, !v.isHidden, v.isUserInteractionEnabled,
+            guard let v = w.view, v !== field, v.window === window, !hiddenUp(v), v.isUserInteractionEnabled,
                   boxes[key]?.view?.isHidden != true, znNearestController(v) === screen else { return nil }
             if let t = v as? UITextView, !t.isEditable { return nil }
             guard let k = order.key(v), order.before(me, k) else { return nil }
@@ -282,6 +282,18 @@ enum ZnFieldFocus {
             return take(after.filter { !$0.0.isDescendant(of: row.list) })
         }
         return take(after)
+    }
+
+    /// [v] or a view it is in is hidden. A List keeps a row it made ahead, past its edge, in a hidden cell (seen
+    /// 2026-11-24: s4 in checksLab g): a field there refuses focus, but asking it took the focus from the field
+    /// before, and the keyboard closed. Such a row is shown first (nextRow), then focused.
+    private static func hiddenUp(_ v: UIView) -> Bool {
+        var a: UIView? = v
+        while let x = a {
+            if x.isHidden { return true }
+            a = x.superview
+        }
+        return false
     }
 
     /// The List (UIKit variant) [field] is in, and the index path of its row there.

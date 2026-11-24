@@ -92,16 +92,18 @@ final class ChecksLabTests: ZnUITestCase {
         assertRowShows("Row 1 (44)")
     }
 
-    /// The row whose label is [label] is drawn: the pixels just right of its label are the row's grey, not white.
+    /// The row whose label is [label] is drawn: a pixel near the List's right end, on the label's line, is the row's
+    /// grey, not the section's white. (Not just right of the label: a Text's element spans its row's width.)
     private func assertRowShows(_ label: String, file: StaticString = #filePath, line: UInt = #line) {
-        let f = text(label).frame
+        let f = text(label).frame, list = id("rows-list").frame
         let shot = XCUIScreen.main.screenshot().image
         guard let cg = shot.cgImage, let data = cg.dataProvider?.data, let bytes = CFDataGetBytePtr(data) else {
             return XCTFail("no screenshot", file: file, line: line)
         }
         let scale = CGFloat(cg.width) / shot.size.width
-        // 30 pt right of the label's end, on its middle line: the row's own background.
-        let x = Int((f.maxX + 30) * scale), y = Int(f.midY * scale)
+        // 20 pt in from the List's right edge (the row has an 8 pt margin and 12 pt padding there), on the label's
+        // middle line: the row's own background.
+        let x = Int((list.maxX - 20) * scale), y = Int(f.midY * scale)
         let i = y * cg.bytesPerRow + x * (cg.bitsPerPixel / 8)
         let (r, g, b) = (Int(bytes[i]), Int(bytes[i + 1]), Int(bytes[i + 2]))
         // BGRA or RGBA: the grey's channels are 241, 245, 249 either way round; white is 255, 255, 255.
