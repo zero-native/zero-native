@@ -9,7 +9,7 @@
 // (Android lays out in whole pixels).
 //
 // Where the doc leaves a case open, the expectation follows android/runtime (the reference renderer) and says so.
-import { Box, Column, Row, Scroll, Stack, StyleSheet, Text } from "@zeronative/ui"
+import { Box, Column, Modal, NavigationBar, Row, Scroll, Sheet, Stack, StatusBar, StyleSheet, Text } from "@zeronative/ui"
 import { signal } from "@zeronative/core"
 import { c } from "./tokens"
 
@@ -119,6 +119,12 @@ const EXPECT: Record<string, Frame> = {
   // padding 2 (iOS left the pill 0 wide, 2026-11-24); and a plain child with no width in a minWidth 80 Column.
   // RN's results; Android to check (A102).
   c48a: [18, 0, 18, 18], c48b: [2, 2, 14, 14], c48c: [0, 0, 80, 10],
+  // 49. A Sheet, Modal, StatusBar or NavigationBar takes no room in its parent: no gap, no justifyContent share, no
+  // place in a wrapped line (Android draws them in their own window or as effects; iOS gave each a gap and a slot
+  // until 2026-11-24). gap 10 with a StatusBar first and a Sheet between; space-between with a Sheet last;
+  // space-between with a Modal and a NavigationBar after; a wrap Row with a StatusBar between two 95 wide boxes.
+  c49a: [0, 0, 200, 20], c49b: [0, 30, 200, 20], c49c: [0, 0, 40, 20], c49d: [160, 0, 40, 20],
+  c49e: [0, 0, 200, 20], c49f: [0, 40, 200, 20], c49g: [0, 0, 95, 10], c49h: [105, 0, 95, 10],
 }
 
 const TOLERANCE = 1
@@ -502,6 +508,36 @@ export function LayoutLabScreen() {
             <Box testID="c36a" onLayout={L("c36a")} style={{ width: 90, backgroundColor: A }} />
             <Box testID="c36b" onLayout={L("c36b")} style={{ width: 90, height: 40, backgroundColor: B }} />
             <Box testID="c36c" onLayout={L("c36c")} style={{ width: 90, height: 10, backgroundColor: A }} />
+          </Row>
+        </Case>
+        <Case title="49. Sheet, Modal and bars take no room">
+          <Column gap={10} style={{ width: 200, backgroundColor: BG }}>
+            <StatusBar />
+            <Box testID="c49a" onLayout={L("c49a")} style={{ height: 20, backgroundColor: A }} />
+            <Sheet visible={false}>
+              <Box style={{ height: 20 }} />
+            </Sheet>
+            <Box testID="c49b" onLayout={L("c49b")} style={{ height: 20, backgroundColor: B }} />
+          </Column>
+          <Row justifyContent="space-between" style={{ width: 200, height: 20, backgroundColor: BG }}>
+            <Box testID="c49c" onLayout={L("c49c")} style={{ width: 40, height: 20, backgroundColor: A }} />
+            <Box testID="c49d" onLayout={L("c49d")} style={{ width: 40, height: 20, backgroundColor: B }} />
+            <Sheet visible={false}>
+              <Box style={{ height: 20 }} />
+            </Sheet>
+          </Row>
+          <Column justifyContent="space-between" style={{ width: 200, height: 60, backgroundColor: BG }}>
+            <Box testID="c49e" onLayout={L("c49e")} style={{ height: 20, backgroundColor: A }} />
+            <Box testID="c49f" onLayout={L("c49f")} style={{ height: 20, backgroundColor: B }} />
+            <Modal visible={false}>
+              <Box style={{ height: 20 }} />
+            </Modal>
+            <NavigationBar />
+          </Column>
+          <Row gap={10} style={{ width: 200, flexWrap: "wrap", backgroundColor: BG }}>
+            <Box testID="c49g" onLayout={L("c49g")} style={{ width: 95, height: 10, backgroundColor: A }} />
+            <StatusBar />
+            <Box testID="c49h" onLayout={L("c49h")} style={{ width: 95, height: 10, backgroundColor: B }} />
           </Row>
         </Case>
       </Column>

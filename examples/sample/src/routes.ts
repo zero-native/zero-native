@@ -74,6 +74,7 @@ import { MotionBindingsLabScreen } from "./MotionBindingsLab"
 import { ElementValuesLabScreen } from "./ElementValuesLab"
 import { ListsTwoLabScreen } from "./ListsTwoLab"
 import { NavStartLabScreen, SharedLabDetailScreen, SharedLabScreen, SharedLabSeeThroughScreen } from "./SharedLab"
+import { PaintLabScreen } from "./PaintLab"
 
 export const routes = defineRoutes({
   home: { path: "/", screen: HomeScreen },
@@ -197,6 +198,8 @@ export const routes = defineRoutes({
   ivInvisibleLayer: { path: "/dev/image-viewer/invisible-layer", screen: InvisibleLayerScreen, transparent: true, transition: "none", restore: false },
   // Who takes a tap where Pressables, scrolls and overlays meet (TouchLab.tsx). Last, as above.
   touchLab: { path: "/dev/touch", screen: TouchLabScreen, deepLink: true },
+  // Paint parity: a rounded Pressable's clip, opacity as one picture, elevation without a background. Last, as above.
+  paintLab: { path: "/dev/paint", screen: PaintLabScreen, deepLink: true },
 })
 
 // Typed navigation: nav.push("amount", { merchantId }) is checked against these routes.
