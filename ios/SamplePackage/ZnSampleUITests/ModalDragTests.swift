@@ -17,7 +17,8 @@ final class ModalDragTests: ZnUITestCase {
     }
 
     /// A drag at [x] from [y0] to [y1] (fractions of the screen), at [velocity] points a second, held [hold] s at
-    /// the end (then let go with no speed: only the distance counts).
+    /// the end. The hold doesn't zero the speed at the let-go: a pan held 0.3 s still ended at 391 pt/s, and a list
+    /// coasted on 225 pt after it.
     private func drag(from y0: CGFloat, to y1: CGFloat, velocity: CGFloat, hold: TimeInterval, x: CGFloat = 0.5) {
         let a = app.coordinate(withNormalizedOffset: CGVector(dx: x, dy: y0))
         let b = app.coordinate(withNormalizedOffset: CGVector(dx: x, dy: y1))
@@ -71,10 +72,10 @@ final class ModalDragTests: ZnUITestCase {
         drag(from: 0.85, to: 0.6, velocity: 600, hold: 0.3)
         eventually("the list scrolled (Row 1 at \(row.frame.minY), was \(r0))") { row.frame.minY < r0 - 120 }
         XCTAssertEqual(title.frame.minY, t0, accuracy: 1, "the modal moved")
-        // Down, less than it scrolled (all but about 60 pt, slowly, so it doesn't coast on): only the list moves, and
-        // the modal stays. How far it scrolled is read from Row 1, not a share of the screen: the first drag scrolls
-        // it further on a taller phone (and it coasts on after it), about 430 pt on an iPhone 17 Pro, 400 on a 16.
-        let r1 = row.frame.minY
+        // Down, less than it scrolled (all but about 60 pt, slowly): only the list moves, and the modal stays. How far
+        // it scrolled is read from Row 1 once the list has stopped coasting, not a share of the screen: the first drag
+        // scrolls it further on a taller phone, about 430 pt on an iPhone 17 Pro, 400 on a 16.
+        let r1 = settled(row)
         let list = id("md-list").frame
         let back = max(r0 - r1 - 60, 40)
         drag(CGPoint(x: list.midX, y: list.minY + 20), CGPoint(x: list.midX, y: list.minY + 20 + back), velocity: 300, hold: 0.3)
@@ -84,9 +85,9 @@ final class ModalDragTests: ZnUITestCase {
         XCTAssertTrue(title.exists, "the modal closed while the list could still scroll")
         XCTAssertEqual(title.frame.minY, t0, accuracy: 1, "the modal moved while the list could still scroll")
         // Down, more than is left, quickly: the list reaches its top and hands the pull over; the modal closes. Past
-        // its top the finger still goes over 0.4 of the screen, so it closes by its distance whatever the speed at
-        // the end (XCUITest slows a drag down before it lets go: the drag's last 40 pt went at 776 pt/s once, under
-        // the 800 of a flick, and with the list 380 pt down it cancelled at 0.04, on the iPhone 17 Pro).
+        // its top the finger still goes over 0.4 of the screen (0.41 on an iPhone 17 Pro), so it closes by its distance
+        // whatever the speed at the end (XCUITest slows a drag down before it lets go: its last 40 pt go at 776 pt/s,
+        // under the 800 of a flick, and with the list 380 pt down it cancelled at 0.04, on the iPhone 17 Pro).
         drag(from: 0.45, to: 0.97, velocity: 1500, hold: 0)
         closed(stack: stack, focused: 2)
         // Again, with the list at its top from the start: a pull down on the list closes it.
@@ -122,6 +123,18 @@ final class ModalDragTests: ZnUITestCase {
         drag(from: y, to: min(y + 0.15, 0.98), velocity: 2000, hold: 0)
         eventually("the card left") { !card.exists }
         closed("See-through card", stack: under, focused: 3)
+    }
+
+    /// [element]'s top once it has stopped moving (two reads 0.2 s apart within 1 pt): a list coasts on after a drag.
+    private func settled(_ element: XCUIElement, file: StaticString = #filePath, line: UInt = #line) -> CGFloat {
+        var y = element.frame.minY
+        eventually("\(element) stopped moving (at \(y))", file: file, line: line) {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+            let now = element.frame.minY
+            defer { y = now }
+            return abs(now - y) < 1
+        }
+        return y
     }
 
     /// A drag from window point [a] to [b] (points), at [velocity], held [hold] s at the end.
@@ -164,7 +177,8 @@ final class ModalDragTests: ZnUITestCase {
         let f = item.frame
         // 320 pt, well past UIKit's line: a 220 pt drag pulled the content 92 to 93 pt, right at the line (it refreshed at
         // 92 on an iPhone 16, at 94 and not 93 on a 17 Pro, whose Scroll is taller), so it failed there every time.
-        drag(CGPoint(x: f.midX, y: f.minY), CGPoint(x: f.midX, y: f.minY + 320), velocity: 600, hold: 0.4)
+        // (Kept on the screen on a short phone: there the Scroll is shorter and so is UIKit's line.)
+        drag(CGPoint(x: f.midX, y: f.minY), CGPoint(x: f.midX, y: min(f.minY + 320, app.frame.maxY - 20)), velocity: 600, hold: 0.4)
         XCTAssertTrue(appears(text("refreshed 1"), timeout: 5), "no refresh (\(id("md-refreshed").label))")
         RunLoop.current.run(until: Date().addingTimeInterval(0.8))
         XCTAssertTrue(title.exists, "the pull closed the modal")
