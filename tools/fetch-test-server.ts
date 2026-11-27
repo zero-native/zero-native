@@ -15,7 +15,9 @@
 // /ws-silent does the handshake, then never answers anything (no pong, no close); /ws-noclose answers pings and echoes
 // text but never answers a close; /ws-eof answers pings, and on a close frame drops the TCP connection without a close
 // frame back; /ws-slowpong?ms=3000 answers each ping that late (and echoes, and answers a close); /ws-slow101?ms=20000
-// sends the 101 that late; /ws-slowclose?ms=3000 answers a close that late.
+// sends the 101 that late; /ws-slowclose?ms=3000 answers a close that late; /ws-closenow?burst=N&code=4001 sends the
+// 101, "0" to "N-1", a close with that code ("bye") and the TCP FIN in one TCP segment (TCP_NOPUSH): what a phone on
+// Wi-Fi gets from /ws?burst=N&close=4001 (this Mac's loopback gets that FIN a moment after the rest).
 //
 // Uploads (the fetch lab's FormData and progress cases): /count answers only the body's length; /upload reads a
 // multipart body and answers each part's headers and size, and for a file part whether byte i is i % 251, the pattern
@@ -34,6 +36,7 @@ import { createServer } from "node:net"
 import { hostname, networkInterfaces } from "node:os"
 import { join } from "node:path"
 import { gzipSync, type ServerWebSocket } from "bun"
+import { dlopen, ptr } from "bun:ffi"
 import { tabsAnswer } from "./plugin-phone/tabs-server"
 
 // Other ports for a second server next to one already running: ZN_TEST_HTTP_PORT=8798 (raw: the next port).
@@ -320,6 +323,26 @@ function frame(op: number, payload: Buffer): Buffer {
   return Buffer.concat([head, payload])
 }
 
+/** Writes [bytes] to socket [fd] and ends it (FIN) in one TCP segment: Darwin's TCP_NOPUSH (Linux's TCP_CORK) holds
+ * the bytes until shutdown sends them with the FIN. Straight through libc, as node:net may end it a tick later. False
+ * when it can't (then nothing was written). */
+function writeWithFin(fd: number | undefined, bytes: Buffer): boolean {
+  const opt = process.platform === "darwin" ? 4 : process.platform === "linux" ? 3 : 0
+  if (fd === undefined || fd < 0 || !opt) return false
+  const libc = dlopen(process.platform === "darwin" ? "libc.dylib" : "libc.so.6", {
+    setsockopt: { args: ["i32", "i32", "i32", "ptr", "u32"], returns: "i32" },
+    write: { args: ["i32", "ptr", "u64"], returns: "i64" },
+    shutdown: { args: ["i32", "i32"], returns: "i32" },
+  })
+  try {
+    if (libc.symbols.setsockopt(fd, 6 /* IPPROTO_TCP */, opt, ptr(new Int32Array([1])), 4) !== 0) return false
+    if (Number(libc.symbols.write(fd, ptr(bytes), bytes.length)) !== bytes.length) return false
+    return libc.symbols.shutdown(fd, 1 /* SHUT_WR */) === 0
+  } finally {
+    libc.close()
+  }
+}
+
 createServer((socket) => {
   let data = Buffer.alloc(0)
   // A raw WebSocket after its handshake: "silent" ignores everything; the others read frames (see the top).
@@ -358,12 +381,27 @@ createServer((socket) => {
     if (data.length < end + 4 + length) return // wait for the whole body
     const key = `${method} ${path}`
     data = Buffer.alloc(0)
-    const rawWs = /^\/ws-(silent|noclose|eof|slowpong|slowclose|slow101)$/.exec(path)?.[1]
+    const rawWs = /^\/ws-(silent|noclose|eof|slowpong|slowclose|slow101|closenow)$/.exec(path)?.[1]
     if (rawWs) {
       const wsKey = /sec-websocket-key: *(\S+)/i.exec(head)?.[1] ?? ""
       const accept = createHash("sha1").update(wsKey + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").digest("base64")
       const answer = `HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`
       const ms = Number(url.searchParams.get("ms") ?? (rawWs === "slow101" ? 20000 : 3000))
+      if (rawWs === "closenow") {
+        const burst = Number(url.searchParams.get("burst") ?? 0)
+        const frames = Array.from({ length: burst }, (_, i) => frame(0x1, Buffer.from(String(i))))
+        const code = Buffer.alloc(2)
+        code.writeUInt16BE(Number(url.searchParams.get("code") ?? 4001))
+        const bytes = Buffer.concat([Buffer.from(answer), ...frames, frame(0x8, Buffer.concat([code, Buffer.from("bye")]))])
+        const fd = (socket as unknown as { _handle?: { fd?: number } })._handle?.fd
+        const together = writeWithFin(fd, bytes)
+        if (!together) socket.end(bytes)
+        console.log(`raw ws (closenow): 101, ${burst} frames, close, FIN${together ? " in one segment" : " (FIN maybe a moment later)"}`)
+        // The client's close answer is not read; the connection goes a moment later.
+        ws = { mode: "silent", ms }
+        setTimeout(() => socket.destroy(), 1000)
+        return
+      }
       if (rawWs === "slow101") setTimeout(() => socket.writable && socket.write(answer), ms)
       else socket.write(answer)
       ws = { mode: rawWs === "slow101" ? "noclose" : rawWs, ms }
