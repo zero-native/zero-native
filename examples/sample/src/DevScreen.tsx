@@ -93,7 +93,7 @@ const MORE_LABS: Lab[] = [
 // The search box's words, any case, each found in the title, the detail or the step.
 function matches(lab: Lab, query: string): boolean {
   const text = `${lab.title} ${lab.detail} ${lab.step}`.toLowerCase()
-  return query.toLowerCase().split(/s+/).every((word) => text.includes(word))
+  return query.trim().toLowerCase().split(/\s+/).every((word) => text.includes(word))
 }
 
 function Entry(props: { title: string; detail: string; step: string; onOpen: () => void }) {
@@ -155,7 +155,7 @@ export function DevScreen() {
           </Pressable>
         )}
       </Row>
-      <Scroll style={{ flex: 1 }}>
+      <Scroll style={{ flex: 1 }} keyboardDismissMode="on-drag">
         <Column style={{ paddingHorizontal: 20, paddingBottom: 32, gap: 10 }}>
           {labs().map((lab) => (
             <Entry key={lab.title} title={lab.title} step={lab.step} detail={lab.detail} onOpen={lab.open} />
