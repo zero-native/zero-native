@@ -1,0 +1,3 @@
+# Foundation, Network, Security and CryptoKit only.
+ios/ZnRuntime/Swift/ZnWebSocketWire.swift
+ios/ZnRuntime/Swift/ZnWebSocketConnection.swift
