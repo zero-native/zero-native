@@ -43,7 +43,7 @@ Android is the reference implementation and is in production. iOS now has every 
 | UI-thread motion & gestures (`useMotion`, `derive()`, `usePan`, `sharedTag`, `animateLayout`) | ✅ | ✅ | The real engine in every iOS build since 2026-11-24 (host API 10). Older iOS builds have a stub: see §3 |
 | Runtime layout slots (`width`, `height`, `min/max`, `flex`, `gap`, `aspectRatio`, radii, `top/bottom/start/end`, `fontSize`, `lineHeight`, `letterSpacing`) & `display: "none"` | ✅ | ✅ | — |
 | `<Canvas>` (2D draw commands) | ✅ | ✅ | Core Graphics on iOS |
-| `WebSocket` | ✅ | ✅ | `URLSessionWebSocketTask` on iOS |
+| `WebSocket` | ✅ | ✅ | Our own client on `NWConnection` on iOS (not `URLSessionWebSocketTask`, which lost a server's messages and close that came with its FIN) |
 | Custom `fontFamily`, `Text` `selectable` / `adjustsFontSizeToFit` / `minimumFontScale` | ✅ | ✅ | — |
 | `accessibility*` props, Dynamic Type font scaling, `testID` | ✅ | ✅ | — |
 | `TextField` `editable`, `placeholderColor`, `selectionColor` | ✅ | ✅ | — |
@@ -324,6 +324,10 @@ marked **gap**.
   to a file first, so an upload needs free disk equal to its size (the timeout counts the staging). No HTTP/2 ping (a
   connection that dies silently without a network change waits for the call's timeout). Pictures keep their
   connections across a network change ([fetch.md](../fetch.md) §9).
+- **`WebSocket`:** the 15 s connect limit also covers TLS and the server's 101 (Android waits for the 101); a socket
+  left open in the background answers no pings while iOS suspends the app. Since 2026-11-27 the messages and close a
+  server sends right with its 101 and FIN all arrive, as on Android, and our close waits for the answer up to 60 s
+  ([fetch.md](../fetch.md) §8).
 - **Background launches:** JS starts without a window (`ZnApp.prepare` in the app delegate, as Android's
   `Application.onCreate`; `ZnTasks.run` starts it once per process if the app didn't). `defineTask` tasks run in a
   push, a notification button or a background launch. `appState()` is "background" until the window's START. Screens
