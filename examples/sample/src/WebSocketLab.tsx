@@ -251,9 +251,9 @@ function checksFor(host: string, port: number): Array<[string, Check]> {
       console.info(`ws-lab: 20 sockets to ${host} opened in ${ms} ms`)
       return `20 opened in ${ms} ms`
     }],
-    // Our close on iOS: URLSession sends the close frame and ends the connection at once, without waiting for the
-    // server's answer, so these three end at once with our code. Android (OkHttp) waits for the answer, up to 60 s.
-    ["our close, server answers 3 s late: iOS at once, Android after 3 s", async () => {
+    // Our close waits for the server's answer, up to 60 s, on both (OkHttp; iOS since 2026-11-27, when it left
+    // URLSession, which ended the connection at once without the answer).
+    ["our close, server answers 3 s late: close after 3 s", async () => {
       const t = track(`${RAW}/ws-slowclose?ms=3000`)
       await next(t, "open")
       const t0 = Date.now()
@@ -261,28 +261,20 @@ function checksFor(host: string, port: number): Array<[string, Check]> {
       const close = await next(t, "close", 8000)
       const ms = Date.now() - t0
       must(order(t) === "open → close 1000" && close.wasClean === true, `${order(t)} wasClean ${close.wasClean}`)
-      must(Platform.OS === "ios" ? ms < 1000 : ms >= 2900, `after ${ms} ms`)
+      must(ms >= 2900, `after ${ms} ms`)
       return `${order(t)} after ${ms} ms, clean`
     }],
-    ["our close, then the server drops TCP (no close frame)", async () => {
+    ["our close, then the server drops TCP (no close frame): error, close 1006", async () => {
       const t = track(`${RAW}/ws-eof`)
       await next(t, "open")
       t.ws.close(4002, "done")
-      if (Platform.OS !== "ios") return errorThenClose(t, 1006, false)
-      const close = await next(t, "close")
-      must(order(t) === "open → close 4002" && close.wasClean === true, `${order(t)} wasClean ${close.wasClean}`)
-      return `${order(t)}, clean (iOS doesn't wait for the answer)`
+      return errorThenClose(t, 1006, false)
     }],
-    ["our close never answered: iOS at once, Android error, close 1006 after 60 s", async () => {
+    ["our close never answered: error, close 1006 after 60 s", async () => {
       const t = track(`${RAW}/ws-noclose`)
       await next(t, "open")
       const t0 = Date.now()
       t.ws.close(1000, "done")
-      if (Platform.OS === "ios") {
-        const close = await next(t, "close")
-        must(order(t) === "open → close 1000" && close.wasClean === true, `${order(t)} wasClean ${close.wasClean}`)
-        return `${order(t)} after ${Date.now() - t0} ms`
-      }
       const r = await errorThenClose(t, 1006, false, 75_000)
       const s = Math.round((Date.now() - t0) / 1000)
       must(s >= 58, `after ${s} s`)
