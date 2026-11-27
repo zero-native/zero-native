@@ -284,4 +284,45 @@ final class ModalDragTests: ZnUITestCase {
         XCTAssertEqual(lab.frame.minY, l0, accuracy: 1, "the lab under the card moved")
         closed("See-through card", stack: stack, focused: 2)
     }
+
+    /// A flick so short and quick that the pan's .began and .ended come in one touch event (on the page's row of
+    /// buttons, 0.08 of the screen at 8000 pt/s): it lets go before UIKit has started the pop, which it does 20 to 30
+    /// ms after it is asked. Its speed at the let-go is about 1050 pt/s, over the 800 of a flick, so it closes.
+    private func flickBeforeThePopStarts() {
+        drag(from: 0.4, to: 0.48, velocity: 8000, hold: 0)
+    }
+
+    /// Let go before UIKit had started the pop, the page closes, the plain one and the list, both with the shared photo,
+    /// and the lab then takes taps. Before 2026-11-27 the spring that closes it was made while UIKit was starting the
+    /// pop, paused, and never ran: the page stayed, the photo landed on the lab's and nothing took a tap until the app
+    /// was killed (Pavan's iPhone 11; ZnModalDrag.startInteractiveTransition).
+    func testFlickLetGoBeforeThePopStartsCloses() {
+        var stack = open("Open modal")
+        flickBeforeThePopStarts()
+        closed(stack: stack, focused: 2)
+        stack = open("With a list", launching: false)
+        flickBeforeThePopStarts()
+        closed(stack: stack, focused: 3)
+        // The lab takes taps: it opens the page, which closes with its button.
+        stack = open("Open modal", launching: false)
+        app.buttons["Close"].firstMatch.tap()
+        closed(stack: stack, focused: 4)
+    }
+
+    /// Shorter (0.05 of the screen): let go before UIKit had started the pop, at about 260 pt/s, so the page springs
+    /// back. It stays in place and takes taps, on the plain page and the list.
+    func testShortLetGoBeforeThePopStartsStays() {
+        let stack = open("Open modal")
+        for (n, button) in ["Open modal", "With a list"].enumerated() {
+            if n > 0 { _ = open(button, launching: false) }
+            let title = text("Drag me down")
+            let y0 = title.frame.minY
+            drag(from: 0.4, to: 0.45, velocity: 8000, hold: 0)
+            RunLoop.current.run(until: Date().addingTimeInterval(1))
+            XCTAssertTrue(title.exists, "\(button): a short drag closed the page")
+            XCTAssertEqual(title.frame.minY, y0, accuracy: 1, "\(button): the page didn't spring back")
+            app.buttons["Close"].firstMatch.tap()
+            closed(stack: stack, focused: n + 2)
+        }
+    }
 }

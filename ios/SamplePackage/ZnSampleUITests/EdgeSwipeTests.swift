@@ -56,4 +56,35 @@ final class EdgeSwipeTests: ZnUITestCase {
         XCTAssertTrue(text("Race target 1").exists, "the screen left (its handler keeps it)")
         XCTAssertEqual(tile.frame.minX, x0, accuracy: 1, "the rail scrolled as well")
     }
+
+    /// Quick short flicks from the edge (6 pt in, at 8000 pt/s): the pan lets go 1 to 15 ms after UIKit was asked to
+    /// pop, about when UIKit asks for the swipe's interaction. To 60 pt it goes back; to 30 pt (cancelled, under 600
+    /// pt/s at the let-go) the screen stays and takes taps. A let-go before UIKit asked keeps the interaction for it
+    /// (ZnNavController.backPanned): dropped, UIKit ran the pop without it, to the end even when cancelled.
+    func testQuickShortEdgeFlicks() {
+        launch("navRaceLab", until: { self.text("Navigation race") })
+        let origin = app.coordinate(withNormalizedOffset: .zero)
+        let y = app.frame.height * 0.45
+        let flick = { (to: CGFloat) in
+            origin.withOffset(CGVector(dx: 6, dy: y)).press(forDuration: 0.05, thenDragTo: origin.withOffset(CGVector(dx: to, dy: y)),
+                                                            withVelocity: XCUIGestureVelocity(8000), thenHoldForDuration: 0)
+        }
+        app.buttons["Push target"].firstMatch.tap()
+        XCTAssertTrue(appears(text("Race target 1"), timeout: 5))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.8))
+        flick(30)
+        RunLoop.current.run(until: Date().addingTimeInterval(1.5))
+        XCTAssertTrue(text("Race target 1").exists, "a short flick went back")
+        XCTAssertFalse(text("Navigation race").exists, "the lab shows")
+        // The screen takes taps: its Push again pushes the next one, which a longer flick takes back.
+        app.buttons["Push again"].firstMatch.tap()
+        XCTAssertTrue(appears(text("Race target 2"), timeout: 5), "the screen took no tap after the short flick")
+        RunLoop.current.run(until: Date().addingTimeInterval(0.8))
+        flick(60)
+        XCTAssertTrue(appears(text("Race target 1"), timeout: 5), "the flick didn't go back")
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        XCTAssertFalse(text("Race target 2").exists, "the flicked screen came back")
+        app.buttons["Back"].firstMatch.tap()
+        XCTAssertTrue(appears(text("Navigation race"), timeout: 5), "Back didn't show the lab")
+    }
 }
