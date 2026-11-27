@@ -7,7 +7,8 @@ http to a LAN address.
 
 - Fetch and WebSocket labs: `bun run tools/fetch-test-server.ts` (`--host 127.0.0.1` keeps it on the Mac). Open
   `zn://sample/dev/fetch?host=<LAN address>` and `zn://sample/dev/websocket?host=<LAN address>`, then Run all
-  (`host=<Mac>.local` works too: the other-host redirect then goes to the LAN address).
+  (`host=<Mac>.local` works too: the other-host redirect then goes to the LAN address). The five FormData file cases read the lab files
+  from a Mac folder (`--files`), so on a phone they say "skipped"; they run on the simulator.
 - An OTA install (full zip, then a `znbsdiff1` patch): `bun run tools/ota/test-server.ts` starts a throwaway
   zn-updates on port 8796 with its own key pair, token and store in `/tmp/zn-ota-test` (never the sample's real key).
   `bun run tools/ota/test-server.ts release --mark one` builds the sample with that mark, uploads it and points

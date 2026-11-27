@@ -66,7 +66,9 @@ function checksFor(host: string, port: number, dir?: string): Array<[string, Che
   const L = `http://${host}:${port}`
   const RAW = `http://${host}:${port + 1}`
   const file = (name: string) => `file://${encodeURI(`${dir}/${name}`)}`
-  const needDir = () => must(!!dir, "no { dir } param: start the server with --files <folder> and pass that folder")
+  // The lab files are made on the Mac (the server's --files <folder>): a simulator reads that folder, a phone can't, so
+  // with no { dir } these cases are skipped rather than failed.
+  const noDir = "skipped: no { dir } param (start the server with --files <folder> and pass that folder; simulator only)"
   return [
     ["JSON with Hindi and emoji", async () => {
       const j = await (await fetch(`${L}/json`)).json()
@@ -253,7 +255,7 @@ function checksFor(host: string, port: number, dir?: string): Array<[string, Che
     }],
     // ---- FormData file parts (streamed from disk) ----
     ["FormData file part, 3 MB, streamed", async () => {
-      needDir()
+      if (!dir) return noDir
       const up = track()
       const form = new FormData()
       form.append("storeId", "42")
@@ -269,7 +271,7 @@ function checksFor(host: string, port: number, dir?: string): Array<[string, Che
       return `${r.length} bytes; ${up.text()}`
     }],
     ["FormData file name can't add headers", async () => {
-      needDir()
+      if (!dir) return noDir
       const form = new FormData()
       form.append("f", { uri: file("zn-lab-3mb.bin"), name: 'evil".jpg\r\nX-Evil: 1', type: "image/jpeg" })
       const r = await (await fetch(`${L}/upload`, { method: "POST", body: form as any })).json()
@@ -279,7 +281,7 @@ function checksFor(host: string, port: number, dir?: string): Array<[string, Che
       return h[0]!.slice(32)
     }],
     ["FormData 200 MB file (memory stays flat)", async () => {
-      needDir()
+      if (!dir) return noDir
       const up = track()
       const form = new FormData()
       form.append("video", { uri: file("zn-lab-200mb.bin"), name: "video.mp4", type: "video/mp4" })
@@ -294,7 +296,7 @@ function checksFor(host: string, port: number, dir?: string): Array<[string, Che
       return `${Math.round(r.length / 1e6)} MB in ${Date.now() - t0} ms; ${up.text()}`
     }],
     ["FormData 200 MB upload aborted", async () => {
-      needDir()
+      if (!dir) return noDir
       const up = track()
       const ctl = new AbortController()
       const form = new FormData()
@@ -310,7 +312,7 @@ function checksFor(host: string, port: number, dir?: string): Array<[string, Che
       return `${e.name} after ${Date.now() - t0} ms; ${up.text()}`
     }],
     ["FormData timeout covers writing the body", async () => {
-      needDir()
+      if (!dir) return noDir
       const form = new FormData()
       form.append("video", { uri: file("zn-lab-200mb.bin"), name: "video.mp4", type: "video/mp4" })
       const t0 = Date.now()
