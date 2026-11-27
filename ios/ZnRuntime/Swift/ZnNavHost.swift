@@ -634,6 +634,10 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
         touchScrolls = []
         belowScrolls = []
         touchPans = []
+        defer {
+            dragLog("touch at \(touch.location(in: view)) on \(touch.view.map { String(describing: type(of: $0)) } ?? "-"), "
+                    + "scrolls \(touchScrolls.map(Self.describe)), below \(belowScrolls.count), pans \(touchPans.count)")
+        }
         guard let box = topViewController as? ZnSeeThroughBox, let entry = app.stack.last,
               app.route(of: entry)?.transition == .modal else { return }
         var path: [UIView] = []
@@ -656,6 +660,27 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
             followed.add(sv)
             sv.panGestureRecognizer.addTarget(self, action: #selector(scrollPanned(_:)))
         }
+    }
+
+    /// ZN_DRAG_LOG=1 (Debug): what the drag down sees, each touch and move (in a UI test: TEST_RUNNER_ZN_APP_ZN_DRAG_LOG=1
+    /// with the console file). Release builds log nothing.
+    private func dragLog(_ line: @autoclosure () -> String) {
+        #if DEBUG
+        if Self.dragLogOn { print("zn t=\(ZnDebug.ms()) drag: \(line())") }
+        #endif
+    }
+
+    #if DEBUG
+    private static let dragLogOn = ProcessInfo.processInfo.environment["ZN_DRAG_LOG"] == "1"
+    #endif
+
+    /// A scroll view as the drag log shows it.
+    private static func describe(_ sv: UIScrollView) -> String {
+        let i = sv.adjustedContentInset
+        let refresh = sv.refreshControl != nil || sv.subviews.contains { $0 is UIRefreshControl }
+        return "\(type(of: sv)) offset \(Int(sv.contentOffset.y)) content \(Int(sv.contentSize.height)) "
+            + "bounds \(Int(sv.bounds.height)) inset \(Int(i.top))/\(Int(i.bottom)) bounce \(sv.alwaysBounceVertical) "
+            + "refresh \(refresh) pulls \(pullScrolls(sv)) away \(awayFromPullEnd(sv))"
     }
 
     /// A pan of a native screen or view the drag down leaves the touch to: not a scroll view's own (they scroll and
@@ -705,12 +730,18 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
         guard let sv = other.view as? UIScrollView, other === sv.panGestureRecognizer, modalTop() != nil else { return false }
         if belowScrolls.contains(sv) { return true }
         guard touchScrolls.contains(sv) else { return false }
-        return !touchScrolls.contains(where: Self.pullScrolls)
+        let first = !touchScrolls.contains(where: Self.pullScrolls)
+        dragLog("\(Self.describe(sv)) waits for the drag down: \(first)")
+        return first
     }
 
     private func dismissShouldBegin() -> Bool {
-        guard modalTop() != nil else { return false }
+        guard modalTop() != nil else {
+            dragLog("should begin: no modal top")
+            return false
+        }
         let v = dismissPan.velocity(in: view)
+        dragLog("should begin? velocity \(Int(v.x)),\(Int(v.y)), scrolls \(touchScrolls.map(Self.describe))")
         guard v.y > 0, v.y > abs(v.x) else { return false }  // down, more than sideways
         // A scroll view under the finger that can still scroll that way scrolls; at its top it hands over (scrollPanned).
         // Nothing is changed here: UIKit may ask and then not begin it (a native pan under the finger it waits for
@@ -719,6 +750,9 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
     }
 
     @objc private func dismissPanned(_ g: UIPanGestureRecognizer) {
+        if g.state != .changed {
+            dragLog("dismissPan \(g.state.rawValue) at \(Int(g.translation(in: view).y)), \(Int(g.velocity(in: view).y)) pt/s")
+        }
         if g.state == .began {
             dragFrom = g.translation(in: view).y
             guard let m = modalTop() else {
@@ -754,6 +788,8 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
     @objc private func scrollPanned(_ pan: UIPanGestureRecognizer) {
         guard let sv = pan.view as? UIScrollView else { return }
         let over = [.ended, .cancelled, .failed].contains(pan.state)
+        dragLog("scroll pan \(pan.state.rawValue) at \(Int(pan.translation(in: view).y)), \(Int(pan.velocity(in: view).y)) pt/s: "
+                + "\(Self.describe(sv)) awayInPan \(awayInPan.contains(sv)) handoff \(handoff != nil) modalTop \(modalTop() != nil)")
         if pan.state == .began { awayInPan.remove(sv) }
         if Self.awayFromPullEnd(sv) { awayInPan.add(sv) }  // (UIKit's own target has scrolled it for this move)
         defer { if over { awayInPan.remove(sv) } }
