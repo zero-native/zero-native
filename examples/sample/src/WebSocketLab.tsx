@@ -4,7 +4,8 @@
 // adb reverse tcp:8788 tcp:8788 and tcp:8789). Params: { host } where the server is (default localhost; an iPhone
 // uses the Mac's LAN address, which the server prints: zn://sample/dev/websocket?host=192.168.1.20; the "20 sockets"
 // case then times that host), { port } for a server on another port (raw: port + 1),
-// { run: true } to start at once, { only: "text" } for just the cases whose name has that text, { hold: "echo" } or
+// { run: true } to start at once, { only: "text" } for just the cases whose name has that text, { repeat: 10 } to run
+// them that many times (each run logged and counted), { hold: "echo" } or
 // { hold: "slowpong" } to open that held socket at once. Each result is also logged: ws-check PASS / FAIL.
 import { Column, Pressable, Row, Scroll, Text } from "@zeronative/ui"
 import { nav, Platform, signal, type Signal } from "@zeronative/core"
@@ -202,6 +203,17 @@ function checksFor(host: string, port: number): Array<[string, Check]> {
       must(close.wasClean === true, `wasClean ${close.wasClean}`)
       return "open → 50 messages in order → close 4001"
     }],
+    // The same, with the 101, the messages, the close and the TCP FIN in one TCP segment, as a phone on Wi-Fi gets
+    // them (on this Mac's loopback the FIN of /ws comes a moment later). URLSession lost all of it here (2026-11-27).
+    ["101, messages, close and FIN in one packet: all arrive", async () => {
+      const t = track(`${RAW}/ws-closenow?burst=50&code=4001`)
+      const close = await next(t, "close")
+      const got = t.events.filter((e) => e.type === "message").map((e) => e.data)
+      must(got.length === 50 && got.every((d, i) => d === String(i)), `got ${got.length}; ${order(t).slice(0, 40)}; close ${close.code} "${close.reason}"`)
+      must(order(t) === `open → ${Array(50).fill("message").join(" → ")} → close 4001`, order(t).slice(0, 80))
+      must(close.reason === "bye" && close.wasClean === true, `close ${close.code} "${close.reason}" wasClean ${close.wasClean}`)
+      return "open → 50 messages in order → close 4001"
+    }],
     ["200 quick sends echo in order", async () => {
       const t = track(W)
       await next(t, "open")
@@ -370,7 +382,7 @@ function heldSocket(url: string, label: string) {
   return { state, toggle }
 }
 
-export function WebSocketLabScreen(props: { host?: string; port?: number; run?: boolean; only?: string; hold?: "echo" | "slowpong" }) {
+export function WebSocketLabScreen(props: { host?: string; port?: number; run?: boolean; only?: string; repeat?: number; hold?: "echo" | "slowpong" }) {
   const host = props.host || "localhost"
   const port = Number(props.port ?? 8788)
   const checks = checksFor(host, port).filter(([name]) => !props.only || name.includes(props.only))
@@ -388,7 +400,10 @@ export function WebSocketLabScreen(props: { host?: string; port?: number; run?: 
     if (running) return
     running = true
     let passed = 0
-    for (let i = 0; i < checks.length; i++) {
+    const rounds = Math.max(1, Number(props.repeat ?? 1))
+    const total = checks.length * rounds
+    for (let n = 0; n < total; n++) {
+      const i = n % checks.length
       const k = cases[i]!
       k.state.set("running…")
       k.color.set(c.muted)
@@ -403,7 +418,7 @@ export function WebSocketLabScreen(props: { host?: string; port?: number; run?: 
         k.color.set(FAIL)
       }
       console.log(`ws-check ${k.state().startsWith("✓") ? "PASS" : "FAIL"} ${k.name}: ${k.state()}`)
-      summary.set(`${passed} / ${i + 1} passed${i + 1 < checks.length ? "…" : ""}`)
+      summary.set(`${passed} / ${n + 1} passed${n + 1 < total ? "…" : ""}`)
     }
     running = false
     console.log(`ws-check done: ${summary()}`)
