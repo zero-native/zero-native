@@ -142,7 +142,7 @@ final class ComponentsTests: ZnUITestCase {
     }
 }
 
-/// Opening a screen from the Dev hub and going back (nav.push / nav.back).
+/// Opening a screen from the Dev hub and going back (nav.push / nav.back), and the hub's search.
 final class NavigationTests: ZnUITestCase {
     private var componentsEntry: XCUIElement {
         app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Components & a11y")).firstMatch
@@ -155,5 +155,46 @@ final class NavigationTests: ZnUITestCase {
         XCTAssertTrue(appears(id("comp-title"), timeout: 5), "Components didn't open")
         id("comp-back").tap()
         eventually("back on the Dev screen") { !self.id("comp-title").exists && entry.exists }
+    }
+
+    /// The Dev screen's search: any case, words in any order, title, detail or step; "More labs" only with matches.
+    func testSearchDevScreens() {
+        launch("dev", ready: "dev-search")
+        let field = id("dev-search")
+        let amount = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Amount keypad")).firstMatch
+        let modalDrag = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Modal drag")).firstMatch
+        let more = text("More labs"), none = text("No screens match")
+        XCTAssertTrue(amount.exists)
+
+        // A word from the detail, in another case: only Components is left, and no "More labs" heading.
+        field.tap()
+        field.typeText("MaxFont")
+        eventually("only Components for \"MaxFont\"") { self.componentsEntry.exists && !amount.exists && !more.exists }
+
+        // Two words in the other order, both in a More labs entry: the heading comes back, the first list is empty.
+        id("dev-search-clear").tap()
+        eventually("all entries after Clear") { amount.exists && !self.id("dev-search-clear").exists }
+        field.tap()
+        field.typeText("drag modal")
+        eventually("only Modal drag for \"drag modal\"") { modalDrag.exists && more.exists && !amount.exists && !self.componentsEntry.exists }
+
+        // A step (r23 is the WebSocket checks), then nothing at all.
+        id("dev-search-clear").tap()
+        field.tap()
+        field.typeText("r23")
+        eventually("WebSocket checks for \"r23\"") {
+            self.app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "WebSocket checks")).count == 1 && !amount.exists
+        }
+        field.typeText("zzqx")
+        eventually("\"No screens match\"") { none.exists && !self.app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "WebSocket checks")).firstMatch.exists }
+
+        // Clear shows every entry again; a match opens its screen.
+        id("dev-search-clear").tap()
+        eventually("all entries after Clear") { amount.exists && !none.exists }
+        field.tap()
+        field.typeText("maxfont")
+        eventually("Components for \"maxfont\"") { self.componentsEntry.exists && !amount.exists }
+        componentsEntry.tap()
+        XCTAssertTrue(appears(id("comp-title"), timeout: 5), "Components didn't open from the search")
     }
 }
