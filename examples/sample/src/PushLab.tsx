@@ -55,7 +55,8 @@ export function installPushLab() {
       console.info(`push-lab slow ${finished ? "finished" : "aborted"} (asked ${ms} ms)`)
       return
     }
-    if (d.lab !== "show") return
+    // iOS showed this one itself (shown: true, told at the next start or with its tap): not shown again (README).
+    if (d.lab !== "show" || m.shown) return
     await channels()
     const r = await Notifications.show({
       id: d.id ?? `push-${m.messageId}`,
