@@ -1,88 +1,65 @@
-// The built-in WebSocket module on iOS (the browser WebSocket API; JS side: packages/core/src/websocket.ts), on
-// URLSessionWebSocketTask. Same calls, events and rules as android/runtime's ZnWebSocket.kt (docs/fetch.md §8):
+// The built-in WebSocket module on iOS (the browser WebSocket API; JS side: packages/core/src/websocket.ts), on our
+// own RFC 6455 client over NWConnection (ZnWebSocketConnection.swift, ZnWebSocketWire.swift). Same calls, events and
+// rules as android/runtime's ZnWebSocket.kt (docs/fetch.md §8):
 // - `connect`, `send` and `close` run on the main thread only to keep the order JS called them in; each is handed to
-//   one serial queue, which is also the session's delegate queue, so all socket state lives on that queue.
+//   one serial queue, which is also every connection's queue, so all socket state lives on that queue.
 // - Events: open {id, protocol}, message {id, data}, closing {id, code, reason}, close {id, code, reason, wasClean},
 //   error {id, message}. One close per socket.
 // - Text frames only (v1): a binary frame gives error, then we close with 1003. A message over 1 MB (UTF-8 bytes)
-//   from the server gives error, then we close with 1009; `send` of more rejects "too_large".
+//   from the server gives error, then we close with 1009 (its bytes are never kept); `send` of more rejects "too_large".
 // - A ping every 10 s (OkHttp's pingInterval on Android): with no pong by the next ping, error, then close 1006. A
 //   ping that iOS held up (the app was suspended) gets a fresh one instead: no false failure on return.
-// - Our own close: URLSession sends the close frame and ends the connection at once, without waiting for the
-//   server's answer (it has no other way), so close comes at once with our code. OkHttp waits up to 60 s.
-// - The handshake sends fetch's User-Agent. Cookies and the cache are off, as for fetch.
+// - The server's close: answered at once, then closing and close with its code (clean), as OkHttp.
+// - Our own close: the close frame, then we wait for the server's answer up to 60 s (as OkHttp); the server's answer
+//   gives close with its code, clean; none in 60 s, or the connection dropped first, gives error, then close 1006.
+// - The handshake sends fetch's User-Agent, no cookies.
 // - A JS reset (dev reload, OTA restart) cancels every socket; late events of those sockets are dropped. JS ids also
 //   start at a random number in each JS runtime.
-// Known differences: no proxy, pins or interceptors (iOS fetch has none either). Native memory per message is capped
-// at 4 MB (OkHttp has no cap); a message past that also gives error, then close 1009. The 15 s connect limit also
-// covers waiting for the 101 (OkHttp: only the TCP connect). See docs/fetch.md §8.
+// Not URLSessionWebSocketTask: it lost the messages and the close that came in one read with the server's FIN (see
+// ZnWebSocketWire.swift). Known differences: no proxy, pins or interceptors (iOS fetch has none either). The 15 s
+// connect limit also covers TLS and waiting for the 101 (OkHttp: only the TCP connect). See docs/fetch.md §8.
 import Foundation
 
 final class ZnWebSocket: ZnModuleBase, @unchecked Sendable {
     static let shared = ZnWebSocket()
     private static let maxMessageSize = 1_048_576  // 1 MB cap in UTF-8 bytes, as Android (second-opinions 161)
-    /// What URLSession reads into memory for one message at most. Above our 1 MB, so the 1 MB rule is our own exact
-    /// check (with Android's error); a message past this fails inside URLSession and goes the same way.
-    private static let nativeMaxMessageSize = 4 * 1_048_576
     private static let pingInterval = 10.0
-    /// Only a safety net: URLSession reports our own close at once (see the top).
+    /// How long we wait for the server's answer to our close, as OkHttp.
     private static let closeTimeout = 60.0
-    /// As Android's CONNECT_TIMEOUT_MS. On iOS (URLRequest's timeoutInterval) it also covers TLS and waiting for the 101.
+    /// As Android's CONNECT_TIMEOUT_MS; on iOS it covers TLS and waiting for the 101 too.
     private static let connectTimeout = 15.0
 
     /// One socket, as JS knows it. Touched on `work` only.
     private final class Entry {
         let id: Int
         let epoch: Int
-        let task: URLSessionWebSocketTask
-        /// URLSession said the socket is open. Before that, a close from JS cancels the connect (what browsers do).
+        let conn: ZnWsConnection
+        /// The handshake is done. Before that, a close from JS cancels the connect (what browsers do).
         var open = false
         /// We already sent JS an error for this socket (binary frame, message too big) and started closing it.
         var gaveUp = false
-        /// We (or URLSession for us) sent our close frame, with this code and reason.
+        /// We sent our close frame, with this code.
         var closeSent: Int?
-        var closeReason = ""
         var awaitingPong = false
         var pongs = 0
         /// When the last ping went out (`now()`).
         var pingSentAt: UInt64 = 0
         var pingTimer: DispatchSourceTimer?
         var closeTimer: DispatchSourceTimer?
-        init(id: Int, epoch: Int, task: URLSessionWebSocketTask) {
-            self.id = id; self.epoch = epoch; self.task = task
+        var connectTimer: DispatchSourceTimer?
+        init(id: Int, epoch: Int, conn: ZnWsConnection) {
+            self.id = id; self.epoch = epoch; self.conn = conn
         }
         func stopTimers() {
             pingTimer?.cancel(); pingTimer = nil
             closeTimer?.cancel(); closeTimer = nil
+            connectTimer?.cancel(); connectTimer = nil
         }
     }
 
-    /// All socket state lives here: calls, the session's delegate calls and the timers run on it, one at a time.
+    /// All socket state lives here: calls, the connections' callbacks and the timers run on it, one at a time.
     private let work = DispatchQueue(label: "zn-websocket")
-    private lazy var queue: OperationQueue = {
-        let q = OperationQueue()
-        q.name = "zn-websocket"
-        q.maxConcurrentOperationCount = 1
-        q.underlyingQueue = work
-        return q
-    }()
-    /// Made on `work`, on the first connect.
-    private lazy var session: URLSession = {
-        let c = URLSessionConfiguration.default
-        c.httpCookieStorage = nil
-        c.httpShouldSetCookies = false
-        c.httpCookieAcceptPolicy = .never
-        c.urlCache = nil
-        c.requestCachePolicy = .reloadIgnoringLocalCacheData
-        // OkHttp doesn't count sockets against its per-host limit. Seen on iOS 26 (simulator, 2026-11-21): URLSession
-        // doesn't either (80 sockets to one host opened with a limit of 6). This session has only sockets, so a limit
-        // no app reaches, in case another iOS version does count them.
-        c.httpMaximumConnectionsPerHost = 10_000
-        c.waitsForConnectivity = false  // offline fails at once, as on Android
-        return URLSession(configuration: c, delegate: SessionDelegate(self), delegateQueue: queue)
-    }()
     private var sockets: [Int: Entry] = [:]  // by JS id; `work` only
-    private var byTask: [ObjectIdentifier: Entry] = [:]  // the same entries, by task; `work` only
     private let lock = NSLock()
     /// Goes up on each JS reset (under `lock`). Work queued by an older JS is dropped.
     private var epochValue = 0
@@ -116,27 +93,38 @@ final class ZnWebSocket: ZnModuleBase, @unchecked Sendable {
 
     private func connect(_ call: ZnCall, _ e: Int, _ id: Int, _ raw: String, _ protocols: [String]) {
         guard e == epoch else { return }  // the JS that asked is gone
-        guard let url = URL(string: raw), let scheme = url.scheme?.lowercased(), scheme == "ws" || scheme == "wss",
-              url.host?.isEmpty == false else {
+        guard let url = URL(string: raw), let target = ZnWsWire.target(url),
+              let conn = ZnWsConnection(url: url, protocols: protocols, userAgent: ZnFetch.userAgent,
+                                        maxMessage: Self.maxMessageSize, queue: work) else {
             return call.reject("invalid_url", "Invalid WebSocket URL: \(raw)")
         }
-        if scheme == "ws", let host = url.host, !Self.cleartextAllowed(host) {
+        if !target.tls, !Self.cleartextAllowed(target.host) {
             // As OkHttp: the call succeeds, then the socket fails (error, close 1006).
             call.resolve()
-            let message = "plain ws:// to \(host) is blocked by App Transport Security. Use wss://, or allow this host in the app's Info.plist (NSAppTransportSecurity, debug only)"
+            let message = "plain ws:// to \(target.host) is blocked by App Transport Security. Use wss://, or allow this host in the app's Info.plist (NSAppTransportSecurity, debug only)"
             emit("error", ["id": id, "message": message])
             return emit("close", ["id": id, "code": 1006, "reason": message, "wasClean": false])
         }
-        var request = URLRequest(url: url, timeoutInterval: Self.connectTimeout)
-        request.setValue(ZnFetch.userAgent, forHTTPHeaderField: "User-Agent")
-        if !protocols.isEmpty { request.setValue(protocols.joined(separator: ", "), forHTTPHeaderField: "Sec-WebSocket-Protocol") }
-        let task = session.webSocketTask(with: request)
-        task.maximumMessageSize = Self.nativeMaxMessageSize
-        let entry = Entry(id: id, epoch: e, task: task)
+        let entry = Entry(id: id, epoch: e, conn: conn)
         // The same id twice would be a JS bug: don't leak the old socket.
         if let old = sockets.updateValue(entry, forKey: id) { drop(old) }
-        byTask[ObjectIdentifier(task)] = entry
-        task.resume()
+        conn.onOpen = { [weak self, weak entry] proto in
+            guard let self, let entry, self.live(entry) else { return }
+            self.didOpen(entry, proto)
+        }
+        conn.onEvent = { [weak self, weak entry] event in
+            guard let self, let entry, self.live(entry) else { return }
+            self.didReceive(entry, event)
+        }
+        conn.onEnd = { [weak self, weak entry] failure in
+            guard let self, let entry, self.live(entry) else { return }
+            // Ended with no close frame from the server (OkHttp: an EOF before the server's close is onFailure).
+            self.fail(entry, failure?.message ?? "the connection closed without a close frame")
+        }
+        entry.connectTimer = timer(Self.connectTimeout, entry) { [weak self] entry in
+            if !entry.open { self?.fail(entry, "The request timed out.") }
+        }
+        conn.start()
         call.resolve()
     }
 
@@ -148,9 +136,7 @@ final class ZnWebSocket: ZnModuleBase, @unchecked Sendable {
         guard let entry = sockets[id] else { return call.reject("not_found", "WebSocket \(id) not found or already closed") }
         // As OkHttp: nothing is sent after our close frame.
         guard entry.closeSent == nil else { return call.reject("send_failed", "Failed to enqueue WebSocket message") }
-        entry.task.send(.string(data)) { error in
-            if let error { Self.debugLog("\(id): send failed: \(error.localizedDescription)") }
-        }
+        entry.conn.sendText(data)
         call.resolve()  // queued, as on Android
     }
 
@@ -160,7 +146,7 @@ final class ZnWebSocket: ZnModuleBase, @unchecked Sendable {
         // closed itself). Calls run in order, so a close can't come before its connect.
         if let entry = sockets[id] {
             if abort || !entry.open || !Self.canSend(code) || reason.utf8.count > 123 {
-                entry.task.cancel()  // still connecting: fail it (browsers give error, then close 1006)
+                fail(entry, "Canceled")  // still connecting: fail it (browsers give error, then close 1006)
             } else if entry.closeSent == nil {
                 sendClose(entry, code, reason)
             }
@@ -173,81 +159,42 @@ final class ZnWebSocket: ZnModuleBase, @unchecked Sendable {
     /// Our entry is still the live one (not cleared by a JS reset, not replaced).
     private func live(_ entry: Entry) -> Bool { sockets[entry.id] === entry && entry.epoch == epoch }
 
-    private func entry(_ task: URLSessionTask) -> Entry? {
-        guard let entry = byTask[ObjectIdentifier(task)], live(entry) else { return nil }
-        return entry
-    }
-
-    fileprivate func didOpen(_ task: URLSessionWebSocketTask, _ proto: String?) {
-        guard let entry = entry(task) else { return }
+    private func didOpen(_ entry: Entry, _ proto: String) {
         entry.open = true
-        emit("open", ["id": entry.id, "protocol": proto ?? ""])
-        receive(entry)
+        entry.connectTimer?.cancel(); entry.connectTimer = nil
+        emit("open", ["id": entry.id, "protocol": proto])
         startPings(entry)
     }
 
-    private func receive(_ entry: Entry) {
-        // The answer comes on the delegate queue (`work`).
-        entry.task.receive { [weak self, weak entry] result in
-            guard let self, let entry, self.live(entry) else { return }
-            switch result {
-            case .success(let message):
-                // Read on after giving up too (and drop what comes), so the server's close is still read.
-                defer { self.receive(entry) }
-                if entry.gaveUp { return }
-                switch message {
-                case .string(let text):
-                    // URLSession has already read the whole message into memory here: this cap protects JS.
-                    if text.utf8.count > Self.maxMessageSize {
-                        return self.giveUp(entry, 1009, "Message too big", "Message received from server exceeds 1 MB limit")
-                    }
-                    self.emit("message", ["id": entry.id, "data": text])
-                default:
-                    // v1 is text frames only: a binary frame is reported once as an error event (second-opinions 161),
-                    // then we close with 1003 ("Unsupported Data"), so JS sees error → close, like in a browser.
-                    self.giveUp(entry, 1003, "Unsupported Data", "binary WebSocket frames are not supported in zero-native v1")
-                }
-            case .failure(let error):
-                // Past `maximumMessageSize`, URLSession fails the read (EMSGSIZE) and closes with 1009 itself: report
-                // it as a message too big. Any other failure ends the task, and didComplete tells JS.
-                let ns = error as NSError
-                if Self.isTooBig(ns), !entry.gaveUp {
-                    entry.closeSent = 1009
-                    entry.closeReason = "Message too big"
-                    self.giveUp(entry, 1009, "Message too big", "Message received from server exceeds 1 MB limit")
-                }
-            }
-        }
-    }
-
-    /// The server's close frame came (URLSession answers it itself), or we sent ours (URLSession reports it here at once,
-    /// with our code, without waiting for the server's answer). The close event follows here (OkHttp's onClosed).
-    fileprivate func didClose(_ task: URLSessionWebSocketTask, _ code: URLSessionWebSocketTask.CloseCode, _ reason: Data?) {
-        guard let entry = entry(task) else { return }
-        let text = reason.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-        emit("closing", ["id": entry.id, "code": code.rawValue, "reason": text])
-        finish(entry)
-        emit("close", ["id": entry.id, "code": code.rawValue, "reason": text, "wasClean": true])
-    }
-
-    fileprivate func didComplete(_ task: URLSessionTask, _ error: Error?) {
-        guard let entry = entry(task) else {
-            byTask[ObjectIdentifier(task)] = nil
-            return
-        }
-        let ws = entry.task
-        // We closed, and the task ended without coming to didClose first (not seen; URLSession always went there): clean
-        // only with a close code on the task, or when URLSession closed with 1009 itself for a message past its limit.
-        // Else the socket failed (OkHttp: an EOF before the server's close is onFailure).
-        let ns = error as NSError?
-        let ended = ns == nil || (ns!.domain == NSURLErrorDomain && ns!.code == NSURLErrorCancelled)
-        if let sent = entry.closeSent, (ended && ws.closeCode != .invalid) || ns.map(Self.isTooBig) == true {
-            let code = ws.closeCode != .invalid ? ws.closeCode.rawValue : sent
-            let text = ws.closeReason.flatMap { String(data: $0, encoding: .utf8) } ?? entry.closeReason
+    private func didReceive(_ entry: Entry, _ event: ZnWsEvent) {
+        switch event {
+        case .text(let text):
+            if !entry.gaveUp { emit("message", ["id": entry.id, "data": text]) }
+        case .binary:
+            // v1 is text frames only: a binary frame is reported once as an error event (second-opinions 161), then we
+            // close with 1003 ("Unsupported Data"), so JS sees error → close, like in a browser.
+            if !entry.gaveUp { giveUp(entry, 1003, "Unsupported Data", "binary WebSocket frames are not supported in zero-native v1") }
+        case .tooBig:
+            if !entry.gaveUp { giveUp(entry, 1009, "Message too big", "Message received from server exceeds 1 MB limit") }
+        case .ping(let payload):
+            if entry.closeSent == nil { entry.conn.sendPong(payload) }
+        case .pong:
+            // Any pong counts, an older ping's too (as OkHttp).
+            entry.awaitingPong = false
+            entry.pongs += 1
+        case .close(let code, let reason):
+            // The server's close (or its answer to ours). 1005: it sent no code (RFC 6455 §7.1.5).
+            let shown = code ?? 1005
+            emit("closing", ["id": entry.id, "code": shown, "reason": reason])
             finish(entry)
-            return emit("close", ["id": entry.id, "code": code, "reason": text, "wasClean": true])
+            if entry.closeSent == nil {
+                // Answered at once with its code, as OkHttp (1000 for one we may not send back).
+                entry.conn.answerCloseAndEnd(code.flatMap { Self.canSend($0) ? $0 : nil } ?? 1000)
+            } else {
+                entry.conn.cancel()
+            }
+            emit("close", ["id": entry.id, "code": shown, "reason": reason, "wasClean": true])
         }
-        fail(entry, Self.message(error, task))
     }
 
     // MARK: Pings and closing
@@ -266,73 +213,72 @@ final class ZnWebSocket: ZnModuleBase, @unchecked Sendable {
                 return self.fail(entry, "sent ping but didn't receive pong within \(ms)ms (after \(entry.pongs) successful ping/pongs)")
             }
             if entry.awaitingPong { Self.debugLog("\(entry.id): ping timer late (app was suspended): a fresh ping") }
+            // After our close frame nothing else is sent; the close timer watches the socket then.
+            guard entry.closeSent == nil else { return }
             entry.awaitingPong = true
             entry.pingSentAt = Self.now()
-            entry.task.sendPing { [weak entry] error in
-                // An error: the socket is ending; didComplete tells. Any pong counts, an older ping's too (as OkHttp).
-                guard let entry, error == nil else { return }
-                entry.awaitingPong = false
-                entry.pongs += 1
-            }
+            entry.conn.sendPing()
         }
         entry.pingTimer = t
         t.resume()
     }
 
-    /// Sends our close frame. URLSession then ends the task at once (didClose); the 60 s timer is only a safety net.
+    /// Sends our close frame, then waits for the server's answer (`didReceive` .close) up to 60 s, as OkHttp.
     private func sendClose(_ entry: Entry, _ code: Int, _ reason: String) {
         entry.closeSent = code
-        entry.closeReason = reason
-        let closeCode = URLSessionWebSocketTask.CloseCode(rawValue: code) ?? .normalClosure
-        entry.task.cancel(with: closeCode, reason: reason.isEmpty ? nil : Data(reason.utf8))
-        let t = DispatchSource.makeTimerSource(queue: work)
-        t.schedule(deadline: .now() + Self.closeTimeout)
-        t.setEventHandler { [weak self, weak entry] in
-            guard let self, let entry, self.live(entry) else { return }
-            self.fail(entry, "the server didn't answer our close within \(Int(Self.closeTimeout)) s")
+        entry.awaitingPong = false
+        entry.conn.sendClose(code, reason)
+        entry.closeTimer = timer(Self.closeTimeout, entry) { [weak self] entry in
+            self?.fail(entry, "the server didn't answer our close within \(Int(Self.closeTimeout)) s")
         }
-        entry.closeTimer = t
-        t.resume()
     }
 
     private func giveUp(_ entry: Entry, _ code: Int, _ closeReason: String, _ message: String) {
         entry.gaveUp = true
         emit("error", ["id": entry.id, "message": message])
-        if entry.closeSent == nil { sendClose(entry, code, closeReason) }  // set already: URLSession closed it itself
+        if entry.closeSent == nil { sendClose(entry, code, closeReason) }
     }
 
     /// The socket failed: error, then close 1006 (OkHttp's onFailure).
     private func fail(_ entry: Entry, _ message: String) {
         finish(entry)
-        entry.task.cancel()
+        entry.conn.cancel()
         emit("error", ["id": entry.id, "message": message])
         emit("close", ["id": entry.id, "code": 1006, "reason": message, "wasClean": false])
     }
 
-    /// The socket is over: out of the maps, timers stopped. Later events of its task are dropped.
+    /// The socket is over: out of the map, timers stopped. Later events of its connection are dropped.
     private func finish(_ entry: Entry) {
         entry.stopTimers()
         if sockets[entry.id] === entry { sockets[entry.id] = nil }
-        byTask[ObjectIdentifier(entry.task)] = nil
     }
 
     private func drop(_ entry: Entry) {
         finish(entry)
-        entry.task.cancel()
+        entry.conn.cancel()
+    }
+
+    /// A one-shot timer on `work` for a live entry.
+    private func timer(_ seconds: Double, _ entry: Entry, _ body: @escaping (Entry) -> Void) -> DispatchSourceTimer {
+        let t = DispatchSource.makeTimerSource(queue: work)
+        t.schedule(deadline: .now() + seconds)
+        t.setEventHandler { [weak self, weak entry] in
+            guard let self, let entry, self.live(entry) else { return }
+            body(entry)
+        }
+        t.resume()
+        return t
     }
 
     /// Time that keeps counting while the app is suspended or the phone sleeps, in ns.
     private static func now() -> UInt64 { clock_gettime_nsec_np(CLOCK_MONOTONIC) }
 
-    /// URLSession's error for a message past `maximumMessageSize` (it then closes the socket with 1009 itself).
-    private static func isTooBig(_ e: NSError) -> Bool { e.domain == NSPOSIXErrorDomain && e.code == Int(EMSGSIZE) }
-
-    /// Plain ws:// to this host is allowed by the app's App Transport Security settings. ATS doesn't check WebSocket
-    /// tasks itself (seen 2026-11-21: ws://example.com opened with only NSAllowsLocalNetworking), so we apply the rules
-    /// fetch gets: always for IP addresses, names with no dot and .local names; else NSAllowsArbitraryLoads or an
-    /// NSExceptionDomains entry with NSExceptionAllowsInsecureHTTPLoads. As in ATS, NSAllowsArbitraryLoads counts only
-    /// when none of NSAllowsLocalNetworking, NSAllowsArbitraryLoadsInWebContent, NSAllowsArbitraryLoadsForMedia is
-    /// there. Android's cleartext policy refuses it too.
+    /// Plain ws:// to this host is allowed by the app's App Transport Security settings. ATS doesn't check our
+    /// connections (nor did it check WebSocket tasks: ws://example.com opened with only NSAllowsLocalNetworking,
+    /// 2026-11-21), so we apply the rules fetch gets: always for IP addresses, names with no dot and .local names; else
+    /// NSAllowsArbitraryLoads or an NSExceptionDomains entry with NSExceptionAllowsInsecureHTTPLoads. As in ATS,
+    /// NSAllowsArbitraryLoads counts only when none of NSAllowsLocalNetworking, NSAllowsArbitraryLoadsInWebContent,
+    /// NSAllowsArbitraryLoadsForMedia is there. Android's cleartext policy refuses it too.
     private static func cleartextAllowed(_ host: String) -> Bool {
         let h = host.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]."))
         if !h.contains(".") || h.hasSuffix(".local") || h.contains(":") || h.allSatisfy({ $0.isNumber || $0 == "." }) { return true }
@@ -352,34 +298,6 @@ final class ZnWebSocket: ZnModuleBase, @unchecked Sendable {
         (1000...4999).contains(code) && !(1004...1006).contains(code) && !(1015...2999).contains(code)
     }
 
-    /// What JS gets as the error message for a failed socket.
-    private static func message(_ error: Error?, _ task: URLSessionTask) -> String {
-        guard let error else { return "the connection closed without a close frame" }
-        let ns = error as NSError
-        if ns.domain == NSURLErrorDomain {
-            switch ns.code {
-            case NSURLErrorCancelled: return "Canceled"
-            case NSURLErrorBadServerResponse:
-                // The handshake got an HTTP answer that is not a 101: say which, as OkHttp does.
-                if let r = task.response as? HTTPURLResponse, r.statusCode != 101 {
-                    // iOS doesn't give the server's reason phrase, and its own names are in the phone's language.
-                    let name = reasonPhrases[r.statusCode].map { " " + $0 } ?? ""
-                    return "Expected HTTP 101 response but was '\(r.statusCode)\(name)'"
-                }
-            default: break
-            }
-        }
-        return error.localizedDescription
-    }
-
-    /// English names of the answers a handshake usually gets instead of 101 (OkHttp shows the server's own).
-    private static let reasonPhrases: [Int: String] = [
-        200: "OK", 301: "Moved Permanently", 302: "Found", 307: "Temporary Redirect", 308: "Permanent Redirect",
-        400: "Bad Request", 401: "Unauthorized", 403: "Forbidden", 404: "Not Found", 405: "Method Not Allowed",
-        408: "Request Timeout", 426: "Upgrade Required", 429: "Too Many Requests", 500: "Internal Server Error",
-        502: "Bad Gateway", 503: "Service Unavailable", 504: "Gateway Timeout",
-    ]
-
     private static func debugLog(_ line: String) {
         #if DEBUG
         print("zn websocket \(line)")
@@ -389,33 +307,16 @@ final class ZnWebSocket: ZnModuleBase, @unchecked Sendable {
     // MARK: JS reset
 
     /// JS reset (dev reload, OTA restart), main thread. Every socket is cancelled at once (no close handshake: the JS
-    /// that would hear it is gone), and the maps are cleared, so late events of these sockets are dropped.
+    /// that would hear it is gone), and the map is cleared, so late events of these sockets are dropped.
     func reset() {
         lock.withLock { epochValue += 1 }
         work.async { [self] in
             let old = Array(sockets.values)
             sockets = [:]
-            byTask = [:]
             for entry in old {
                 entry.stopTimers()
-                entry.task.cancel()
+                entry.conn.cancel()
             }
-        }
-    }
-
-    /// URLSession's delegate must be an NSObject; it only forwards to the methods above (the session keeps it).
-    private final class SessionDelegate: NSObject, URLSessionWebSocketDelegate {
-        unowned let ws: ZnWebSocket
-        init(_ ws: ZnWebSocket) { self.ws = ws }
-        func urlSession(_ s: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol proto: String?) {
-            ws.didOpen(webSocketTask, proto)
-        }
-        func urlSession(_ s: URLSession, webSocketTask: URLSessionWebSocketTask,
-                        didCloseWith code: URLSessionWebSocketTask.CloseCode, reason: Data?) {
-            ws.didClose(webSocketTask, code, reason)
-        }
-        func urlSession(_ s: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-            ws.didComplete(task, error)
         }
     }
 }
