@@ -1,5 +1,5 @@
-// Every screen we check on the phone, in one list (route /dev, button "Dev screens" on the home screen). Add a row here
-// whenever a new dev screen is added to routes.ts.
+// Every screen we check on the phone, in one list (route /dev, button "Dev screens" on the home screen), with a search at
+// the top. Add a row to LABS (or MORE_LABS) whenever a new dev screen is added to routes.ts.
 // Open with: adb shell am start -a android.intent.action.VIEW -d zn://sample/dev
 import { Column, Pressable, Row, Scroll, Text, TextField } from "@zeronative/ui"
 import { computed, nav, signal } from "@zeronative/core"
