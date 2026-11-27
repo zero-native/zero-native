@@ -177,6 +177,10 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
     /// edge, moving right, cancels the press under the finger, and drives the pop with the finger (ZnPopAnimator).
     private lazy var backPan = UIPanGestureRecognizer(target: self, action: #selector(backPanned(_:)))
     private var interaction: UIPercentDrivenInteractiveTransition?
+    /// UIKit has asked for the swipe's interaction (interactionControllerFor), 1 to 15 ms after the pop was asked.
+    private var swipeStarted = false
+    /// The swipe let go before that ([finish]): UIKit gets the interaction still, which then finishes or cancels.
+    private var swipeRelease: Bool?
     /// The swipe's shared-element flights (the debug log only).
     private weak var swipeFlight: ZnSharedFlight?
     /// The swipe (or the drag down) on a see-through screen moves it alone, inside its box (no UIKit pop).
@@ -533,7 +537,11 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
         switch g.state {
         case .began:
             interaction = UIPercentDrivenInteractiveTransition()
+            swipeStarted = false
+            swipeRelease = nil
             popViewController(animated: true)
+            // UIKit took no pop (nothing started): the interaction isn't left set for a later pop.
+            if transitionCoordinator == nil { interaction = nil }
         case .changed:
             interaction?.update(progress)
             #if DEBUG
@@ -544,15 +552,16 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
             #endif
         case .ended, .cancelled, .failed:
             let fling = g.velocity(in: view).x
-            if g.state == .ended && (progress > 0.5 || fling > 600) {
-                interaction?.completionSpeed = 1
-                interaction?.finish()
-                print("zn t=\(ZnDebug.ms()) nav: swipe back finished")
-            } else {
-                interaction?.cancel()
-                popped = []  // the box stays (UIKit's didShow after the cancel shows it again)
-                print("zn t=\(ZnDebug.ms()) nav: swipe back cancelled")
+            let finish = g.state == .ended && (progress > 0.5 || fling > 600)
+            if !finish { popped = [] }  // the box stays (UIKit's didShow after the cancel shows it again)
+            print("zn t=\(ZnDebug.ms()) nav: swipe back \(finish ? "finished" : "cancelled")")
+            // Let go before UIKit asked for the interaction (a quick flick): it is kept for UIKit and ended once UIKit
+            // has started the pop with it. Dropped here, UIKit ran the pop without it: to the end, even a cancelled one.
+            if interaction != nil, !swipeStarted {
+                swipeRelease = finish
+                return
             }
+            end(interaction, finish: finish)
             interaction = nil
         default:
             break
@@ -610,7 +619,27 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
     func navigationController(_ nav: UINavigationController,
                               interactionControllerFor animator: UIViewControllerAnimatedTransitioning) -> UIViewControllerInteractiveTransitioning? {
         if let drag = animator as? ZnModalDrag { return drag }
-        return animator is ZnPopAnimator ? interaction : nil
+        guard animator is ZnPopAnimator, let interaction else { return nil }
+        print("zn t=\(ZnDebug.ms()) uikit: swipe back transition started")
+        swipeStarted = true
+        if let finish = swipeRelease {
+            // Let go already: it ends on the next main-queue turn, once UIKit has started it (as ZnModalDrag's).
+            swipeRelease = nil
+            self.interaction = nil
+            DispatchQueue.main.async { [weak self] in self?.end(interaction, finish: finish) }
+        }
+        return interaction
+    }
+
+    /// The swipe's interaction let go: on to the end ([finish]) or back.
+    private func end(_ interaction: UIPercentDrivenInteractiveTransition?, finish: Bool) {
+        guard let interaction else { return }
+        if finish {
+            interaction.completionSpeed = 1
+            interaction.finish()
+        } else {
+            interaction.cancel()
+        }
     }
 
     // MARK: Drag down to close a "modal" route
@@ -915,6 +944,8 @@ final class ZnModalDrag: NSObject, UIViewControllerAnimatedTransitioning, UIView
     /// Let go (the finger's last speed), maybe before UIKit started the transition.
     private var release: (finish: Bool, speed: CGFloat)?
     private var released = false
+    /// UIKit has heard the transition ended (complete).
+    private var completed = false
 
     /// Let go at [progress] (of the screen's height) with [speed] (points a second, down is positive): it closes when
     /// flicked down, or past a third of the way unless the finger was going back up.
@@ -951,13 +982,21 @@ final class ZnModalDrag: NSObject, UIViewControllerAnimatedTransitioning, UIView
             flights = a
         }
         print("zn t=\(ZnDebug.ms()) uikit: drag down transition started at \(String(format: "%.2f", progress))")
-        if let r = release {
-            release = nil
+        move(progress)
+        guard let r = release else { return }
+        // Let go before UIKit started the pop (a quick flick: the pan's .began and .ended can come in one touch event,
+        // and UIKit starts the pop 20 to 30 ms after it is asked): the drag ends on the next main-queue turn, once UIKit
+        // is done starting it. UIKit calls this from inside the block that gathers the transition's animations
+        // (+[UIView _setAlongsideAnimations:toRunByEndOfBlock:animated:]), where an interactive transition's animations
+        // are made paused, to be scrubbed, and a finish asked in here is dropped (the context stays interactive). Ended
+        // in here, the let-go spring was made paused (speed 0) and never ran nor called back: the pop never completed
+        // and UIKit took no touch, the shared photo landed on the lab's while the page stayed (Pavan's iPhone 11,
+        // 2026-11-27). A cancel let go at 0 came back all the same: a spring to where the screen already is calls back
+        // at once.
+        release = nil
+        DispatchQueue.main.async { [self] in
             released = false
-            move(progress)
             end(finish: r.finish, speed: r.speed)
-        } else {
-            move(progress)
         }
     }
 
@@ -998,22 +1037,37 @@ final class ZnModalDrag: NSObject, UIViewControllerAnimatedTransitioning, UIView
         let screen = self.screen
         let down = CGAffineTransform(translationX: 0, y: height)
         UIView.animate(withDuration: duration, delay: 0, usingSpringWithDamping: damping, initialSpringVelocity: v, options: [],
-                       animations: { screen?.transform = finish ? down : .identity }, completion: { [self] _ in
-            // The flights end where the screen ends (their spring may be a frame behind).
-            if let a = flights, a.state == .active {
-                a.stopAnimation(false)
-                a.finishAnimation(at: finish ? .end : .start)
-            }
-            screen?.transform = .identity
-            flight?.land()
-            // UIKit's context holds this drag (its animator and interactor): let it go, so the popped box and its
-            // screen aren't kept.
-            self.ctx = nil
-            flights = nil
-            flight = nil
-            done()
-            ctx.completeTransition(finish)
-        })
+                       animations: { screen?.transform = finish ? down : .identity }, completion: { [self] _ in complete(finish) })
+        // A safety net: should the spring never call back (as one made while UIKit was still starting the pop, above),
+        // the pop is completed anyway a second after it should have ended, so the app is never left mid-pop.
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration + 1) { [self] in
+            guard !completed else { return }
+            print("zn t=\(ZnDebug.ms()) uikit: drag down's spring didn't end (interactive \(ctx.isInteractive)); completed at once")
+            if ctx.isInteractive { finish ? ctx.finishInteractiveTransition() : ctx.cancelInteractiveTransition() }
+            screen?.layer.removeAllAnimations()
+            complete(finish)
+        }
+    }
+
+    /// The spring ended (or the safety net ended it): the screen and the flights are put where it ends, and UIKit
+    /// hears it, once.
+    private func complete(_ finish: Bool) {
+        guard !completed, let ctx else { return }
+        completed = true
+        // The flights end where the screen ends (their spring may be a frame behind).
+        if let a = flights, a.state == .active {
+            a.stopAnimation(false)
+            a.finishAnimation(at: finish ? .end : .start)
+        }
+        screen?.transform = .identity
+        flight?.land()
+        // UIKit's context holds this drag (its animator and interactor): let it go, so the popped box and its
+        // screen aren't kept.
+        self.ctx = nil
+        flights = nil
+        flight = nil
+        done()
+        ctx.completeTransition(finish)
     }
 }
 
