@@ -4,7 +4,9 @@
 # pull request until it has been green for a while (Claude's call, 2026-11-24; Pavan left it open). A test that fails
 # runs again once on its own, and the job fails only if it fails again (a busy runner makes some timing tests flaky).
 # When it fails or times out, the test logs and the .xcresult bundles (screenshots, the accessibility tree at each
-# failure) are kept for a week. Nothing here needs a secret, as in ci.yml.
+# failure) are kept for a week, with the app's own console (app-console.log: its nav, field, keyboard and refresh lines,
+# and the drag down's log), as a failure that passes on a Mac can rarely be told from XCUITest's side alone. Nothing here
+# needs a secret, as in ci.yml.
 name: iOS UI tests (nightly)
 
 on:
@@ -56,6 +58,11 @@ jobs:
       - name: UI tests
         # Its own limit, inside the job's: a hung build or simulator fails this step, and the logs are still kept.
         timeout-minutes: 55
+        # The app's console to tmp/zn-console.log in its data container (each launch appends, with its time and pid),
+        # with the drag down's log (ZnNavHost.swift, ZN_DRAG_LOG). Debug builds only; ZnUITestCase hands them on.
+        env:
+          TEST_RUNNER_ZN_APP_ZN_CONSOLE_FILE: "1"
+          TEST_RUNNER_ZN_APP_ZN_DRAG_LOG: "1"
         run: |
           set -o pipefail
           out=ios/build/ui-test
@@ -68,11 +75,16 @@ jobs:
           mkdir -p "$out/first-run"
           cp "$out/ui-test.log" "$out/first-run/" 2>/dev/null || true
           cp -R "$out/ZnSampleUITests.xcresult" "$out/first-run/" 2>/dev/null || true
+          find ~/Library/Developer/CoreSimulator/Devices -path '*/tmp/zn-console.log' -exec cat {} + > "$out/first-run/app-console.log" 2>/dev/null || true
           args=()
           for t in $failed; do args+=(--only "$t"); done
           echo "Running the failed tests again once: $(echo $failed)"
           bun run ios:ui-test --test-only --packages "$RUNNER_TEMP/spm" --derived-data "$out" "${args[@]}"
           echo "::warning::Passed on the second run (flaky): $(echo $failed)"
+      # The app's console after both runs (the second appends to the first's).
+      - name: Copy the app's console
+        if: always()
+        run: find ~/Library/Developer/CoreSimulator/Devices -path '*/tmp/zn-console.log' -exec cat {} + > ios/build/ui-test/app-console.log 2>/dev/null || true
       - name: Keep the test logs and results
         if: failure() || cancelled()
         uses: actions/upload-artifact@v4
@@ -80,6 +92,7 @@ jobs:
           name: ios-ui-test-results
           path: |
             ios/build/ui-test/ui-test.log
+            ios/build/ui-test/app-console.log
             ios/build/ui-test/ZnSampleUITests.xcresult
             ios/build/ui-test/first-run
           if-no-files-found: ignore
