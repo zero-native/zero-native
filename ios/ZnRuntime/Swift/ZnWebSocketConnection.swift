@@ -48,6 +48,9 @@ final class ZnWsConnection {
         conn = NWConnection(to: .hostPort(host: NWEndpoint.Host(t.host), port: port), using: params)
     }
 
+    /// A connection nobody ended (none is expected): don't leave its socket open.
+    deinit { if !over { conn.cancel() } }
+
     func start() {
         conn.stateUpdateHandler = { [weak self] state in
             guard let self, !self.over else { return }
