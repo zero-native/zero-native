@@ -432,11 +432,19 @@ struct ZnFieldBoxTap: ViewModifier {
     let s: ZnNodeSpec
     let inst: ZnInstance
     @Environment(\.znTouchOff) private var touchOff
+    @State private var size = CGSize.zero
 
     func body(content: Content) -> some View {
         if s.type == Registry.Component.textField {
             // Inside pointerEvents "none" the box takes no taps, and a Pressable around it doesn't yield to it.
-            content.contentShape(Rectangle()).onTapGesture { if !touchOff { ZnFieldFocus.focus(inst, s.index) } }
+            // Only a tap in the box: SwiftUI also gives a tap gesture taps near it where nothing else takes them (up to
+            // ~20 pt past a 44 pt field, 2026-11-28), and empty space next to a field focused it. In the box's own
+            // space, so a turned field goes by where it is drawn.
+            content.contentShape(Rectangle())
+                .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
+                .onTapGesture(coordinateSpace: .local) { p in
+                    if !touchOff && CGRect(origin: .zero, size: size).contains(p) { ZnFieldFocus.focus(inst, s.index) }
+                }
                 .background(ZnFieldBoxMarker(key: ZnFieldFocus.key(inst, s.index), off: touchOff))
         } else {
             content
