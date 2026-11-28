@@ -42,7 +42,7 @@
 //     "build": ["bun", "run", "../../Futuristic/zero-native/tools/zn-build.ts", "app", "--name", "zerobill"],
 //     "assets": "android/app/src/main/assets" }
 // The token comes from `login` (~/.zero-native/updates.json) or ZN_UPDATES_TOKEN; who you are from --by / ZN_UPDATES_BY.
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { parseArgs } from "node:util"
@@ -266,6 +266,8 @@ async function main() {
       const saved = existsSync(loginFile) ? JSON.parse(readFileSync(loginFile, "utf8")) : {}
       saved[c.server] = { token: c.token, by: c.by }
       writeFileSync(loginFile, JSON.stringify(saved, null, 2), { mode: 0o600 })
+      // The mode only counts when the file is made: one made earlier keeps its own (it holds admin tokens).
+      chmodSync(loginFile, 0o600)
       console.log(`✓ signed in to ${c.server} (zn-updates ${env.version}, ${env.database}) as ${c.by}`)
       return
     }
