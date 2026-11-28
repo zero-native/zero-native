@@ -55,9 +55,11 @@ export function ProfileScreen() {
 
 ---
 
-## 2. Real-Time Connections (`WebSocket`) — Android Only
+## 2. Real-Time Connections (`WebSocket`)
 
-> **Platform note:** `WebSocket` is currently **Android-only** (iOS `URLSessionWebSocketTask` support is planned).
+> **Platform note:** `WebSocket` works on Android (OkHttp) and iOS (`URLSessionWebSocketTask`). The iOS differences
+> (no answers while the app is suspended, our close doesn't wait, a server close right at connect can be lost on a
+> phone) are in [fetch.md](../fetch.md) §8.
 
 Standard `WebSocket` is installed globally by `installRuntime()` (text frames, 1 MB message cap; `ws.close(code, reason)` accepts only `1000` or `3000–4999` with a reason of at most 123 UTF-8 bytes).
 

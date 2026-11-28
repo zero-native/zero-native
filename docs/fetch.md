@@ -264,10 +264,20 @@ queue. Differences:
   `NSAllowsArbitraryLoadsInWebContent` and `NSAllowsArbitraryLoadsForMedia` is set.
 - A handshake that gets no 101 says so like OkHttp: `Expected HTTP 101 response but was '404 Not Found'`. iOS does
   not give the server's reason phrase, so the name comes from a fixed English list (only the code when it isn't there).
+- **A server that closes right at connect can lose its close on a phone (known issue, 0.1.0).** When the server's
+  101, its first messages, its close frame and the TCP close reach the phone together (a server that turns the socket
+  away at once, e.g. close 4001 "bad token"), `URLSessionWebSocketTask` gives `error` + `close` 1006 ("No message
+  available on STREAM") and drops those messages and the server's code and reason. Seen on an iPhone 11 on Wi-Fi
+  (2026-11-27, the lab's "server close 4001" and "messages right before the server's close" cases); the simulator
+  against localhost doesn't show it; Android gets them all. A socket that is already open and closed later, by either
+  side, is not affected. Until it is fixed: turn a bad token away in the handshake (HTTP 401: JS gets
+  `Expected HTTP 101 response but was '401 Unauthorized'`), or have the server wait a moment (100–200 ms) after the
+  handshake before it sends a close. An own RFC 6455 client on `NWConnection` that keeps them (as RN's SocketRocket
+  and Flutter's dart:io do) is on the branch `ios-websocket-nwconnection`, waiting for an Autobahn run.
 - Many sockets to one host: no limit (80 at once seen; URLSession doesn't count WebSocket tasks against
   `httpMaximumConnectionsPerHost`, and ours is set high anyway). Android has none either.
 Checks: sample screen `/dev/websocket` (route `wsLab`, 28 cases) against `tools/fetch-test-server.ts`: 28 / 28 on the
-iOS simulator (2026-11-21). The cases where the platforms differ (our close, no 101 for 20 s) check each platform's
+iOS simulator (2026-11-21); 27 / 29 on an iPhone 11 on Wi-Fi (2026-11-27: the two are the known issue above). The cases where the platforms differ (our close, no 101 for 20 s) check each platform's
 own behaviour. **The lab has not been run on Android yet** (needs `adb reverse` for both ports); its unknown-host case
 is `wss://` and its cleartext case matches `CLEARTEXT` there.
 

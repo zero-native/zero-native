@@ -39,7 +39,7 @@ Android is the reference implementation and is in production. iOS now has every 
 | `<Scroll>` pull-to-refresh | ✅ | ✅ | Android draws its disc (`ZnPullRefresh.kt`); iOS keeps UIKit's spinner (`ZnTabsRefresh.swift`), with a disc only with `refreshBackground` |
 | Declarative `animate`, `enter`, `exit` | ✅ | ✅ | — |
 | OTA updates (signed bundles, rollback, launch gate, `zn-updates`) | ✅ | ✅ | bsdiff (`znbsdiff1`) patches on both |
-| Live reload (`zn dev`) | ✅ | ✅ | Simulator with no setup; an iPhone with `zn dev --lan` (Bonjour, Debug builds only; built, not yet checked on a phone) |
+| Live reload (`zn dev`) | ✅ | ✅ | Simulator with no setup; an iPhone with `zn dev --lan` (Bonjour, Debug builds only; checked on an iPhone 11: found after the Local Network prompt, reloads in about 550 ms) |
 | UI-thread motion & gestures (`useMotion`, `derive()`, `usePan`, `sharedTag`, `animateLayout`) | ✅ | ✅ | The real engine in every iOS build since 2026-11-24 (host API 10). Older iOS builds have a stub: see §3 |
 | Runtime layout slots (`width`, `height`, `min/max`, `flex`, `gap`, `aspectRatio`, radii, `top/bottom/start/end`, `fontSize`, `lineHeight`, `letterSpacing`) & `display: "none"` | ✅ | ✅ | — |
 | `<Canvas>` (2D draw commands) | ✅ | ✅ | Core Graphics on iOS |
@@ -68,14 +68,16 @@ marked **gap**.
   a bundle that uses motion (or the TSX image viewer) to iOS users.
 - **Checked on the simulator only, not yet on an iPhone** (the full list: [milestones-ios.md](../milestones-ios.md) §12):
   - a real background launch (a silent push, a BGTask), checked only with simulated launches;
-  - `zn dev --lan` on a phone (Bonjour and the Local Network prompt);
   - secure screens (`secure: true`) under a real screenshot, screen recording and mirroring;
-  - one real OTA update (download, apply, rollback);
+  - an OTA rollback on a phone (download and apply of a full bundle and a patch passed on an iPhone 11, 2026-11-27);
   - the camera, UPI apps, universal links, VoiceOver and RTL (ZeroBill's App Store builds may already cover the
     first three);
   - the per-frame motion cost: about 5 ms of main thread per frame for 30 bound elements (4.8 ms Release, up to 5.9
     with blur, 3D and corners; about 2 ms of that is a fixed cost per frame, then about 0.1 ms an element), measured
     at 60 Hz on the simulator, not on a 120 Hz iPhone.
+- **WebSocket: a server close right at connect can be lost on an iPhone** (known issue for 0.1.0): JS gets
+  `close` 1006 instead of the server's code and reason, and the messages sent with it are dropped. Reject a bad token
+  in the handshake (HTTP 401) instead. Details and the fix branch: [fetch.md](../fetch.md) §8.
 - **A Switch or Checkbox inside a Pressable:** on iOS the control takes its own tap and the row doesn't fire
   (innermost wins, since 2026-11-24); on Android both fire until ZnSwitch / ZnCheckbox keep the touch (A53).
 - **A route with `transition: "modal"` closes on a drag down on iOS** (since 2026-11-25, as iOS's own sheets): past
