@@ -145,7 +145,8 @@ marked **gap**.
     around the plugin's view (as Android's testTag on the Box around it). `<NativeView testID pointerEvents>` compiles on
     both since 2026-11-25 (A112).
   - A Pressable's accessibility frame includes its touch area (`hitSlop`, grown to the 44 pt minimum; Android: the
-    layout bounds only).
+    layout bounds only). While a borderless ripple shows (about 0.4 s from the press) it includes the ripple's circle
+    too on iOS; a bounded ripple stays inside the frame (since 2026-11-28).
   - With `accessibilityHidesBelow: true` on a see-through route (the TSX image viewer has it), VoiceOver skips the
     screens below and focus returns to the opener on close; Android ignores it for now (A100).
 - **Touches:**
@@ -162,6 +163,10 @@ marked **gap**.
     shows the feedback for at least 0.1 s. On a scroll inside a Pressable, `onLongPress` comes 0.5 s after the finger
     went down, as on Android. On a Pressable inside a plain Scroll it comes at about 0.65 s.
   - `pointerEvents` "none" / "box-only" also stop TextField and OtpInput focus and NativeView touches.
+  - A TextField takes taps only in its box (border and padding included) where it is drawn, as on Android. Until
+    2026-11-28 iOS also took taps up to about 18 pt past it, so a tap on empty space beside a field focused it. A
+    Switch or Checkbox on iOS still takes taps up to about 16 pt past its 48 pt touch area (SwiftUI's Button); Android
+    stops at 48 dp (open).
   - A Pressable moved, turned or scaled by `transform` takes taps where it is drawn on both platforms, and its ripple
     moves with it. A Pressable inside it wins taps by its size as drawn.
   - In a see-through screen, touches go to Pressables, Scrolls and Lists, fields, tappable Text, enabled Switch /
