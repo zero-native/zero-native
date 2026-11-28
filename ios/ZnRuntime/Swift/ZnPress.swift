@@ -85,7 +85,7 @@ struct ZnPressFeedback: View {
                 // button's borderless ripple reaches ~8 pt past it (it used half the longest side, inside the button).
                 let r = s.rippleRadius ?? hypot(size.width, size.height) / 2
                 let alpha = s.rippleOpacity ?? (s.rippleColor == nil ? 0.12 : 0.24)
-                ZnRippleCircle(start: start, radius: r, scale: grown ? 1 : 0.2, shown: shown ? 1 : 0)
+                ZnRippleCircle(start: start, radius: r, scale: grown ? 1 : 0.2, shown: shown ? 1 : 0, inBox: !s.rippleBorderless)
                     .fill(znRippleColor(s.rippleColor))
                     .opacity(shown ? alpha : 0)
             }
@@ -130,7 +130,10 @@ func znRippleColor(_ c: Color?) -> Color {
 }
 
 /// The ripple's circle. No path at all while it isn't shown (once its fade has ended): SwiftUI counts a shape's path
-/// in the Pressable's VoiceOver frame, hidden or not, so an idle circle made the element larger than its box.
+/// in the Pressable's VoiceOver frame, hidden or not, so an idle circle made the element larger than its box. A
+/// bounded one is cut to the box too: the clip hid the rest, but while it showed (~0.4 s from the press) its circle
+/// counted (a 104 x 44 button read as 108 x 108; a UI test's tap 14 pt past a turned card's edge went 30 pt lower and
+/// focused a field, 2026-11-28).
 private struct ZnRippleCircle: Shape {
     /// Where it starts; its center moves from here to the middle of the node as it grows (scale 0.2 → 1).
     var start: CGPoint
@@ -138,6 +141,8 @@ private struct ZnRippleCircle: Shape {
     var scale: CGFloat
     /// 1 while shown, animated to 0 with the fade.
     var shown: CGFloat
+    /// Clipped to the node (not borderless): the path stays inside its box.
+    var inBox: Bool
 
     var animatableData: AnimatablePair<CGFloat, CGFloat> {
         get { AnimatablePair(scale, shown) }
@@ -149,7 +154,8 @@ private struct ZnRippleCircle: Shape {
         let r = radius * scale
         let t = min(max((scale - 0.2) / 0.8, 0), 1)
         let center = CGPoint(x: start.x + (rect.midX - start.x) * t, y: start.y + (rect.midY - start.y) * t)
-        return Path(ellipseIn: CGRect(x: center.x - r, y: center.y - r, width: r * 2, height: r * 2))
+        let circle = Path(ellipseIn: CGRect(x: center.x - r, y: center.y - r, width: r * 2, height: r * 2))
+        return inBox ? circle.intersection(Path(rect)) : circle
     }
 }
 
