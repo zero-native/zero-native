@@ -25,21 +25,35 @@ final class ChecksLabTests: ZnUITestCase {
     /// A Pressable turned 40° about Y (the depth effect), one tilted about X, and a field turned with them: each takes a
     /// tap at its drawn centre, the turned card not a tap past its drawn far edge, and the field still focuses.
     func testTapsOn3DTurnedViews() {
-        reveal(id("turned-card")).tap()
+        let card = reveal(id("turned-card"))
+        card.tap()
         status("turned 1")
         id("tilted-card").tap()
         status("tilted 1")
         // The element's frame is the drawn card's bounding box (about 60 to 165 pt across; laid out 59 to 189), so
         // offsets go from its right edge, the drawn far edge. 10 pt inside it: still the card.
-        let farEdge = id("turned-card").coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 0.5))
+        let drawn = card.frame
+        let farEdge = card.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 0.5))
         farEdge.withOffset(CGVector(dx: -10, dy: 0)).tap()
         status("turned 2")
+        // Its ripple shows for ~0.4 s, cut to the card: the frame stays the card's. (The ripple's whole circle counted,
+        // about 120 x 152 pt, and the next tap, placed by the frame then, went 30 pt lower, onto the field.)
+        let now = card.frame
+        XCTAssertTrue(abs(now.minX - drawn.minX) < 0.5 && abs(now.maxX - drawn.maxX) < 0.5 && abs(now.minY - drawn.minY) < 0.5
+                      && abs(now.maxY - drawn.maxY) < 0.5, "the card's frame is \(now) while its ripple shows, not \(drawn)")
         // 14 pt past it: inside the laid-out 130 pt (24 pt short of its edge) but not on the drawn card, so not pressed.
         // This tap fails if hit testing goes by the laid-out rect (checked by hand too, 2026-11-24).
         farEdge.withOffset(CGVector(dx: 14, dy: 0)).tap()
         Thread.sleep(forTimeInterval: 0.6)
         XCTAssertEqual(id("checks-status").label, "status: turned 2", "a tap outside the drawn card pressed it")
-        reveal(id("turned-field")).tap()
+        // 12 pt above the turned field's drawn top, in its middle: still in the laid-out card (its last 2 pt) but on
+        // neither as drawn, so the card isn't pressed and the field isn't focused (SwiftUI gave the field's box taps up
+        // to ~20 pt past it, 2026-11-28).
+        let field = id("turned-field")
+        field.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0)).withOffset(CGVector(dx: 0, dy: -12)).tap()
+        Thread.sleep(forTimeInterval: 0.6)
+        XCTAssertEqual(id("checks-status").label, "status: turned 2", "a tap above the drawn field pressed the card or focused the field")
+        reveal(field).tap()
         status("turned field focused")
     }
 
@@ -127,6 +141,20 @@ final class ChecksLabTests: ZnUITestCase {
         // BGRA or RGBA: the grey's channels are 241, 245, 249 either way round; white is 255, 255, 255.
         XCTAssertTrue(max(r, b) <= 251 && min(r, b) >= 237 && abs(g - 245) <= 4,
                       "\(label): pixel (\(r), \(g), \(b)) at \(x),\(y) is not the row's grey: its cell is hidden", file: file, line: line)
+    }
+
+    /// A tap in the empty space 12 pt beside a field (the section's padding, the Scroll's) leaves it alone, as on
+    /// Android: only a tap in its box focuses it. SwiftUI gave the box's tap gesture taps up to ~20 pt past it.
+    func testTapBesideAFieldLeavesIt() {
+        let field = reveal(id("max4"), hittable: false)
+        func focused() -> Bool { field.value(forKey: "hasKeyboardFocus") as? Bool ?? false }
+        for (side, d) in [(CGFloat(0), CGFloat(-12)), (1, 12)] {
+            field.coordinate(withNormalizedOffset: CGVector(dx: side, dy: 0.5)).withOffset(CGVector(dx: d, dy: 0)).tap()
+            Thread.sleep(forTimeInterval: 0.6)
+            XCTAssertFalse(focused(), "a tap \(d) pt beside the field focused it")
+        }
+        field.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        eventually("a tap in the field focuses it", timeout: 3) { focused() }
     }
 
     /// The f) fields: seven keys in one burst into a multiline field JS regroups all count (A93: a key typed during
