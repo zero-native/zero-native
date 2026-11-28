@@ -35,12 +35,16 @@ final class ChecksLabTests: ZnUITestCase {
         let drawn = card.frame
         let farEdge = card.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 0.5))
         farEdge.withOffset(CGVector(dx: -10, dy: 0)).tap()
+        // Its ripple shows for ~0.4 s, cut to the card: the frame stays the card's, read at once and until then. (The
+        // ripple's whole circle counted, about 120 x 152 pt, and the next tap, placed by the frame then, went 30 pt
+        // lower, onto the field.)
+        let pressed = Date()
+        repeat {
+            let now = card.frame
+            XCTAssertTrue(abs(now.minX - drawn.minX) < 0.5 && abs(now.maxX - drawn.maxX) < 0.5 && abs(now.minY - drawn.minY) < 0.5
+                          && abs(now.maxY - drawn.maxY) < 0.5, "the card's frame is \(now) while its ripple shows, not \(drawn)")
+        } while Date().timeIntervalSince(pressed) < 0.4
         status("turned 2")
-        // Its ripple shows for ~0.4 s, cut to the card: the frame stays the card's. (The ripple's whole circle counted,
-        // about 120 x 152 pt, and the next tap, placed by the frame then, went 30 pt lower, onto the field.)
-        let now = card.frame
-        XCTAssertTrue(abs(now.minX - drawn.minX) < 0.5 && abs(now.maxX - drawn.maxX) < 0.5 && abs(now.minY - drawn.minY) < 0.5
-                      && abs(now.maxY - drawn.maxY) < 0.5, "the card's frame is \(now) while its ripple shows, not \(drawn)")
         // 14 pt past it: inside the laid-out 130 pt (24 pt short of its edge) but not on the drawn card, so not pressed.
         // This tap fails if hit testing goes by the laid-out rect (checked by hand too, 2026-11-24).
         farEdge.withOffset(CGVector(dx: 14, dy: 0)).tap()
@@ -53,8 +57,15 @@ final class ChecksLabTests: ZnUITestCase {
         field.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0)).withOffset(CGVector(dx: 0, dy: -12)).tap()
         Thread.sleep(forTimeInterval: 0.6)
         XCTAssertEqual(id("checks-status").label, "status: turned 2", "a tap above the drawn field pressed the card or focused the field")
-        reveal(field).tap()
+        // 4 pt in from the drawn field's left edge, on its middle line: its padding (10 pt), not its text, still
+        // focuses it (the box's tap goes by the turned box, mapped back). Return closes it; then the same on the right.
+        func focused() -> Bool { field.value(forKey: "hasKeyboardFocus") as? Bool ?? false }
+        reveal(field).coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.5)).withOffset(CGVector(dx: 4, dy: 0)).tap()
         status("turned field focused")
+        app.typeText("\n")
+        eventually("Return closes the turned field", timeout: 3) { !focused() }
+        reveal(field).coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 0.5)).withOffset(CGVector(dx: -4, dy: 0)).tap()
+        eventually("a tap in the turned field's right padding focuses it", timeout: 3) { focused() }
     }
 
     /// Reorder in a sideways List and in an inverted List with rows of mixed heights: a long press picks the first
