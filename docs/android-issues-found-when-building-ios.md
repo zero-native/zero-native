@@ -128,6 +128,8 @@ Each entry says:
 | A112 | 2026-11-24 | Shared (compiler) | <NativeView> allows testID and pointerEvents in its type, but the compiler rejects them | open, Pavan to decide (rec: pass them through) |
 | A113 | 2026-11-25 | NativeView (Android) | <NativeView pointerEvents="none"> probably still takes touches on Android | check (likely) |
 | A114 | 2026-11-25 | Layout and touch (Android) | Check: round 7's cases (layout 52, modal drag-down is iOS only, checks lab f/g, 3D turned field) | check |
+| A115 | 2026-11-28 | Baseline profile (Android) | SampleJourney's backToHome() takes the text "Dev screens" to mean Home, but the Dev screen's own header says it too | open (not hit today) |
+| A116 | 2026-11-28 | Sample (Android) | Check: iPhone round 2's sample changes (Dev screens search, push lab skips shown pushes, fetch/WebSocket labs never run on Android) | check |
 
 ---
 
@@ -1155,3 +1157,25 @@ Each entry says:
   123456 while focused; type 1234567 fast into the multiline field: 12,34,567. In checksLab, a tap just right of the
   turned card's drawn edge presses nothing and doesn't focus "turned-field" (iOS's ChecksLabTests.testTapsOn3DTurnedViews
   is flaky there). The modal drag-down is iOS only by design (Android has system back).
+
+## A115. SampleJourney's backToHome() takes the text "Dev screens" to mean Home, but the Dev screen's own header says it too (from iOS work, iPhone round 2)
+- **Status:** open (not hit today: the journey doesn't open /dev). Found on the Mac 2026-11-28 in a review.
+- **Problem:** `android/baselineprofile/src/main/java/dev/zeronative/baselineprofile/SampleJourney.kt` ~50-52:
+  backToHome() stops when it finds `By.text("Dev screens")` (Home's button), and the Dev screen's header has the same
+  text, so on the Dev screen it returns early without pressing Back.
+- **Fix:** wait for something only Home has (its testID, or a second text), not "Dev screens".
+- **Check:** from /dev, call backToHome(): it should press Back and land on Home.
+
+## A116. Check: iPhone round 2's sample changes (from iOS work, iPhone round 2)
+- **Status:** check. Found on the Mac 2026-11-28.
+- **Check:**
+  - `/dev` (Dev screens) has a search field at the top (shared TSX, `examples/sample/src/DevScreen.tsx`): type "drag"
+    (the modal and motion labs stay), "MODAL drag" (any case, any order), a step like "r23" (WebSocket checks); "No
+    screens match" for nonsense; Clear shows all; a drag on the list puts the keyboard away; tapping a result opens it.
+  - The push lab no longer shows its own copy of a push when `onMessage` has `shown: true` (iOS only sends that; on
+    Android nothing should change): a `lab=show` data push still shows "Push lab".
+  - The fetch lab's five FormData file cases need `{ dir }` (a folder with the lab files); with none they now say
+    "skipped". On Android, with `adb reverse tcp:8788 tcp:8788` and 8789, run the fetch lab and the WebSocket lab
+    (`/dev/websocket`, never run on Android yet): the iPhone got 36/41 (+5 skipped) and 27/29 (the two are an iOS
+    known issue, docs/fetch.md §8: a server close right at connect is lost on iOS; Android should pass both).
+
